@@ -1,0 +1,4 @@
+{"regions":{"us":{"name":"United States","channels":{
+  "USBC4400003OU":{"chno":1052,"name":"Bob Ross","group":"Entertainment","logo":"https://tvpnlogopus.samsungcloud.tv/bob.png","description":"Joy of painting."},
+  "USBD1200001A":{"chno":1001,"name":"ABC News Live","group":"News","logo":"https://tvpnlogopus.samsungcloud.tv/abc.png"}
+}},"gb":{"channels":{}}}}

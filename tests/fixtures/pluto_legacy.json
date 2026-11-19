@@ -1,0 +1,2 @@
+[{"_id":"abc1","slug":"pluto-tv-westerns","name":"Pluto TV Westerns","number":510,"category":"Westerns","isStitched":true,"colorLogoPNG":{"path":"https://images.pluto.tv/w/logo.png"}},
+ {"_id":"abc2","name":"Not stitched","isStitched":false}]

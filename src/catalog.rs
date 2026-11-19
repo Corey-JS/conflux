@@ -1,0 +1,316 @@
+//! Holds every provider's catalog in memory, refreshes it on a timer, and
+//! answers searches by combining the local catalogs with live per-query
+//! searches against the providers that are too big to download.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use futures::future::join_all;
+use reqwest::Client;
+use serde::Serialize;
+use tokio::sync::{Mutex, RwLock};
+
+use crate::model::{Item, Kind};
+use crate::providers::Provider;
+use crate::search::{Indexed, Query, rank};
+
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(7);
+const SEARCH_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
+const SEARCH_CACHE_MAX: usize = 500;
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct Status {
+    pub id: String,
+    pub name: String,
+    /// "catalog", "search" or "catalog+search".
+    pub mode: String,
+    pub catalog_items: usize,
+    /// Unix seconds of the last catalog download that worked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_ok_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_ok_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_error: Option<String>,
+}
+
+#[derive(Default)]
+struct State {
+    catalogs: HashMap<String, Vec<Indexed>>,
+    status: HashMap<String, Status>,
+}
+
+pub struct Store {
+    providers: Vec<Arc<dyn Provider>>,
+    http: Client,
+    state: RwLock<State>,
+    search_cache: Mutex<HashMap<(String, String), (Instant, Vec<Item>)>>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Filter {
+    pub kind: Option<Kind>,
+    pub provider: Option<String>,
+}
+
+impl Filter {
+    fn allows_provider(&self, id: &str) -> bool {
+        self.provider.as_deref().is_none_or(|p| p == id)
+    }
+    fn allows(&self, item: &Item) -> bool {
+        self.allows_provider(&item.provider) && self.kind.is_none_or(|k| k == item.kind)
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SearchResult {
+    pub query: String,
+    pub items: Vec<Item>,
+    /// Display names of providers whose live search failed this time.
+    pub unavailable: Vec<String>,
+}
+
+fn now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn short(e: &anyhow::Error) -> String {
+    let s = format!("{e:#}");
+    if s.len() > 300 {
+        format!("{}…", &s[..s.floor_char_boundary(300)])
+    } else {
+        s
+    }
+}
+
+impl Store {
+    pub fn new(providers: Vec<Arc<dyn Provider>>, http: Client) -> Arc<Store> {
+        let mut state = State::default();
+        for p in &providers {
+            let mode = match (p.has_catalog(), p.has_search()) {
+                (true, true) => "catalog+search",
+                (true, false) => "catalog",
+                _ => "search",
+            };
+            state.status.insert(
+                p.id().to_string(),
+                Status {
+                    id: p.id().into(),
+                    name: p.name().into(),
+                    mode: mode.into(),
+                    ..Default::default()
+                },
+            );
+        }
+        Arc::new(Store {
+            providers,
+            http,
+            state: RwLock::new(state),
+            search_cache: Mutex::new(HashMap::new()),
+        })
+    }
+
+    pub fn providers(&self) -> &[Arc<dyn Provider>] {
+        &self.providers
+    }
+
+    fn name_of(&self, id: &str) -> String {
+        self.providers
+            .iter()
+            .find(|p| p.id() == id)
+            .map(|p| p.name().to_string())
+            .unwrap_or_default()
+    }
+
+    /// Download one provider's catalog. On failure the previous catalog is
+    /// kept, so a provider having a bad hour doesn't empty the app.
+    pub async fn refresh(&self, p: &Arc<dyn Provider>) {
+        if !p.has_catalog() {
+            return;
+        }
+        let started = Instant::now();
+        let res = p.catalog(&self.http).await;
+        let mut st = self.state.write().await;
+        let status = st.status.entry(p.id().to_string()).or_default();
+        match res {
+            Ok(items) if !items.is_empty() => {
+                status.catalog_items = items.len();
+                status.catalog_ok_at = Some(now());
+                status.catalog_error = None;
+                tracing::info!(
+                    "{}: {} items in {:?}",
+                    p.id(),
+                    items.len(),
+                    started.elapsed()
+                );
+                let indexed = items.into_iter().map(Indexed::new).collect();
+                st.catalogs.insert(p.id().to_string(), indexed);
+            }
+            Ok(_) => {
+                status.catalog_error =
+                    Some("returned no items (the format may have changed)".into());
+                tracing::warn!("{}: catalog came back empty", p.id());
+            }
+            Err(e) => {
+                status.catalog_error = Some(short(&e));
+                tracing::warn!("{}: catalog failed: {e:#}", p.id());
+            }
+        }
+    }
+
+    pub async fn refresh_all(&self) {
+        join_all(self.providers.iter().map(|p| self.refresh(p))).await;
+    }
+
+    /// Refresh every `every`, forever.
+    pub fn spawn_refresher(self: &Arc<Self>, every: Duration) {
+        let store = Arc::clone(self);
+        tokio::spawn(async move {
+            loop {
+                store.refresh_all().await;
+                tokio::time::sleep(every).await;
+            }
+        });
+    }
+
+    pub async fn statuses(&self) -> Vec<Status> {
+        let st = self.state.read().await;
+        self.providers
+            .iter()
+            .filter_map(|p| st.status.get(p.id()).cloned())
+            .collect()
+    }
+
+    /// Live channels from the downloaded catalogs, for browsing with no query.
+    pub async fn live(&self, filter: &Filter) -> Vec<Item> {
+        let st = self.state.read().await;
+        let mut out = Vec::new();
+        for p in &self.providers {
+            if !filter.allows_provider(p.id()) {
+                continue;
+            }
+            if let Some(cat) = st.catalogs.get(p.id()) {
+                let mut live: Vec<Item> = cat
+                    .iter()
+                    .filter(|i| i.item.kind == Kind::Live)
+                    .map(|i| i.item.clone())
+                    .collect();
+                live.sort_by_key(|i| {
+                    (i.channel_number.unwrap_or(u32::MAX), i.title.to_lowercase())
+                });
+                out.extend(live);
+            }
+        }
+        out
+    }
+
+    async fn remote_search(&self, p: &Arc<dyn Provider>, q: &str) -> Result<Vec<Item>, ()> {
+        let key = (p.id().to_string(), q.to_string());
+        if let Some((at, items)) = self.search_cache.lock().await.get(&key)
+            && at.elapsed() < SEARCH_CACHE_TTL
+        {
+            return Ok(items.clone());
+        }
+        let res = match tokio::time::timeout(SEARCH_TIMEOUT, p.search(&self.http, q)).await {
+            Ok(r) => r,
+            Err(_) => Err(anyhow::anyhow!("timed out after {:?}", SEARCH_TIMEOUT)),
+        };
+        {
+            let mut st = self.state.write().await;
+            let status = st.status.entry(p.id().to_string()).or_default();
+            match &res {
+                Ok(_) => {
+                    status.search_ok_at = Some(now());
+                    status.search_error = None;
+                }
+                Err(e) => status.search_error = Some(short(e)),
+            }
+        }
+        match res {
+            Ok(items) => {
+                let mut cache = self.search_cache.lock().await;
+                if cache.len() >= SEARCH_CACHE_MAX {
+                    cache.retain(|_, (at, _)| at.elapsed() < SEARCH_CACHE_TTL);
+                    if cache.len() >= SEARCH_CACHE_MAX {
+                        cache.clear();
+                    }
+                }
+                cache.insert(key, (Instant::now(), items.clone()));
+                Ok(items)
+            }
+            Err(e) => {
+                tracing::warn!("{}: search failed: {e:#}", p.id());
+                Err(())
+            }
+        }
+    }
+
+    pub async fn search(&self, raw: &str, filter: &Filter, limit: usize) -> SearchResult {
+        let q = Query::new(raw);
+        let mut result = SearchResult {
+            query: q.text.clone(),
+            items: Vec::new(),
+            unavailable: Vec::new(),
+        };
+        if q.is_empty() {
+            return result;
+        }
+
+        // Live searches (only worth it from 2 characters up).
+        let remote: Vec<_> = self
+            .providers
+            .iter()
+            .filter(|p| p.has_search() && filter.allows_provider(p.id()) && q.text.len() >= 2)
+            .collect();
+        let remote_results = join_all(remote.iter().map(|p| self.remote_search(p, &q.text))).await;
+
+        let mut scored: Vec<(u32, Item)> = Vec::new();
+        {
+            let st = self.state.read().await;
+            for (pid, cat) in &st.catalogs {
+                if !filter.allows_provider(pid) {
+                    continue;
+                }
+                for (s, ix) in rank(cat.iter(), &q) {
+                    if filter.allows(&ix.item) {
+                        scored.push((s, ix.item.clone()));
+                    }
+                }
+            }
+        }
+        for (p, res) in remote.iter().zip(remote_results) {
+            match res {
+                Ok(items) => {
+                    for (pos, item) in items.into_iter().enumerate() {
+                        if !filter.allows(&item) {
+                            continue;
+                        }
+                        let ix = Indexed::new(item);
+                        // The provider matched it for a reason we can't see
+                        // (cast, alternate title), so keep it, ranked lower.
+                        let s = crate::search::score(&ix, &q)
+                            .max(60u32.saturating_sub(pos as u32).max(1));
+                        scored.push((s, ix.item));
+                    }
+                }
+                Err(()) => result.unavailable.push(self.name_of(p.id())),
+            }
+        }
+
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.title.len().cmp(&b.1.title.len())));
+        let mut seen = std::collections::HashSet::new();
+        result.items = scored
+            .into_iter()
+            .map(|(_, i)| i)
+            .filter(|i| seen.insert(i.id.clone()))
+            .take(limit)
+            .collect();
+        result
+    }
+}

@@ -1,0 +1,30 @@
+[Unit]
+Description=Conflux free TV search
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/conflux/conflux serve
+WorkingDirectory=/opt/conflux
+Environment=CONFLUX_BIND=127.0.0.1:8080
+Environment=CONFLUX_WEB_DIR=/opt/conflux/web
+Environment=RUST_LOG=conflux=info,warn
+# Optional: CONFLUX_PROVIDERS=pluto,plex,tubi,roku,samsung and CONFLUX_REFRESH_MINUTES=60
+EnvironmentFile=-/etc/conflux.env
+Restart=always
+RestartSec=5
+
+# Runs as a throwaway user with no write access anywhere.
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target

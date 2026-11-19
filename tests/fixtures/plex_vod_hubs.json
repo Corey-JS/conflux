@@ -1,0 +1,4 @@
+{"MediaContainer":{"Hub":[
+ {"title":"Movies","Metadata":[{"ratingKey":"5d776b59ad5437001f79c6f8","slug":"star-trek-nemesis","title":"Star Trek: Nemesis","type":"movie","year":2002,"thumb":"https://metadata-static.plex.tv/n/poster.jpg","summary":"The final Next Generation film.","Genre":[{"tag":"Science Fiction"}]}]},
+ {"title":"Shows","Metadata":[{"ratingKey":"5d9c0","title":"Star Trek: Enterprise","type":"show","year":"2001","Image":[{"type":"coverPoster","url":"https://metadata-static.plex.tv/e/poster.jpg"}]},{"title":"An Episode","type":"episode"}]}
+]}}

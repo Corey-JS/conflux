@@ -1,0 +1,7 @@
+{"view":[{"title":"Search results","content":[
+  {"title":"The Mask","type":"movie","meta":{"id":"0a1b2c3d4e5f60718293a4b5c6d7e8f9","mediaType":"movie"},"releaseYear":1994,"description":"Comedy.","imageMap":{"grid":{"path":"https://image.roku.com/grid/mask.jpg"}}},
+  {"title":"Roku Comedy Live","type":"linear","meta":{"id":"ffeeddccbbaa99887766554433221100"}},
+  {"title":"Search results","type":"collection"},
+  {"title":"The Mask","type":"movie","meta":{"id":"0a1b2c3d4e5f60718293a4b5c6d7e8f9"}},
+  {"title":"Bad id","type":"movie","id":"../../etc"}
+]}]}

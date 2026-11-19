@@ -1,0 +1,10 @@
+{"categories":[
+ {"name":"Sci-Fi Movies","items":[
+   {"_id":"61aa","slug":"star-trek-ii-the-wrath-of-khan-1982-1-1","name":"Star Trek II: The Wrath of Khan","summary":"Kirk faces an old enemy.","type":"movie","genre":"Sci-Fi & Fantasy","covers":[{"aspectRatio":"16:9","url":"https://images.pluto.tv/k/wide.jpg"},{"aspectRatio":"347:500","url":"https://images.pluto.tv/k/poster.jpg"}]},
+   {"_id":"62bb","slug":"star-trek-the-original-series","name":"Star Trek: The Original Series","type":"series","covers":[]}
+ ]},
+ {"name":"Popular","items":[
+   {"_id":"61aa","slug":"dupe","name":"Duplicate across categories","type":"movie"},
+   {"_id":"63cc","name":"Some Clip","type":"clip"}
+ ]}
+]}
