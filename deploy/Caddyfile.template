@@ -1,0 +1,11 @@
+# Caddy gets and renews the HTTPS certificate on its own.
+# install.sh replaces DOMAIN with your domain (or <ip>.sslip.io).
+DOMAIN {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+	reverse_proxy 127.0.0.1:8080
+}
