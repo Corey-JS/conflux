@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Conflux</title>
+  <meta name="description" content="Search free live TV and on-demand shows across Pluto TV, Tubi, Plex and The Roku Channel.">
+  <meta name="theme-color" content="#0d0f14">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Conflux">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="/icons/favicon-32.png">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><img src="/icons/favicon-32.png" alt="" width="22" height="22"><span>Conflux</span></div>
+    <form class="search" role="search" id="search-form">
+      <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
+      <input id="q" type="search" inputmode="search" enterkeyhint="search" autocomplete="off"
+             autocorrect="off" spellcheck="false" placeholder="Shows, movies, channels" aria-label="Search">
+      <button type="button" id="clear" class="clear" aria-label="Clear search" hidden>&times;</button>
+    </form>
+    <nav class="kinds" aria-label="Type">
+      <button data-kind="all" aria-pressed="true">All</button>
+      <button data-kind="live" aria-pressed="false">Live</button>
+      <button data-kind="movie" aria-pressed="false">Movies</button>
+      <button data-kind="series" aria-pressed="false">Shows</button>
+    </nav>
+    <div class="providers" id="providers" aria-label="Provider"></div>
+  </header>
+
+  <main>
+    <p class="section-title" id="heading">Live channels</p>
+    <ul class="results" id="results" aria-live="polite"></ul>
+    <p class="note" id="note" hidden></p>
+  </main>
+
+  <noscript><p class="note">Conflux needs JavaScript to search.</p></noscript>
+</body>
+</html>
