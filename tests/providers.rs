@@ -160,11 +160,11 @@ fn plex_show_art_from_epgshare01() {
     let mut guide = plex::parse_programs(&mirror, "us");
     let xml = text_fixture("plex_art.xml");
     let now = 1_795_168_000;
-    let art = plex::ShowArt::parse(xml.as_bytes(), now).unwrap();
+    let art = plex::parse_art(xml.as_bytes(), now).unwrap();
     assert_eq!(art.channels(), 2);
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
     std::io::Write::write_all(&mut gz, xml.as_bytes()).unwrap();
-    let served = plex::ShowArt::parse(&gz.finish().unwrap(), now).unwrap();
+    let served = plex::parse_art(&gz.finish().unwrap(), now).unwrap();
     assert_eq!(served.channels(), 2, "served gzipped");
 
     let cw_id = "plex:live:6a1610bebdf296985fd95603-66635fc0ca7b22f4c3a2d743";
@@ -294,6 +294,48 @@ fn roku_live_channels_from_mirror() {
         vec![(1795154400, 1795168800), (1795168800, 1795183200), (1795183200, 1795197600)]
     );
     assert_eq!(map.len(), 2, "no schedule for a channel without programs");
+}
+
+#[test]
+fn roku_show_art_from_the_mirrors_guide() {
+    let mirror = fixture("roku_mirror.json");
+    let channels = roku::parse_channels(&mirror);
+    let mut guide = roku::parse_programs(&mirror);
+    let art = roku::parse_art(text_fixture("roku_art.xml").as_bytes(), 1_795_183_200).unwrap();
+    assert_eq!(art.channels(), 2);
+
+    // The sample's schedule is from earlier in the day than the guide file,
+    // so add one Masked Singer airing the file has.
+    let singer_id = "roku:34b686f999ecaacfbcd91bb5195c3124";
+    guide.get_mut(singer_id).unwrap().push(Program {
+        start: 1_795_186_800,
+        stop: 1_795_190_400,
+        title: "The Masked Singer".into(),
+        subtitle: None,
+        description: None,
+        rating: None,
+        image: None,
+    });
+    assert_eq!(roku::add_art(&mut guide, &channels, &art), 7);
+
+    let fox = &guide["roku:f9c0d48b540a55dcb98b04d2cc8abf25"];
+    let fox_art = "https://images.sr.roku.com/idType/roku-trc/context/trc/id/d497eb2e9b695efbb4976516f5043c70/images/gracenote/assets/p20209211_b_h8_ab.jpg";
+    assert!(
+        fox.iter().all(|p| p.image.as_deref() == Some(fox_art)),
+        "matched by Roku's id; earlier slots by title"
+    );
+    let ratings: Vec<Option<&str>> = fox.iter().map(|p| p.rating.as_deref()).collect();
+    assert_eq!(ratings, [None, None, Some("TV-14")], "details only for the same airing");
+    assert!(fox[2].description.as_deref().unwrap().contains("raw & unfiltered"));
+    assert_eq!(fox[0].description, None);
+
+    let singer = &guide[singer_id];
+    assert_eq!(singer.len(), 4);
+    assert!(singer.iter().all(|p| p.image.as_deref().unwrap().ends_with("/13a5f36a885b5bb18766a1233841861a.jpg")));
+    let same = &singer[3];
+    assert_eq!(same.subtitle, None, "an episode name that repeats the title is skipped");
+    assert_eq!(same.rating.as_deref(), Some("TV-PG"), "Roku writes TVPG");
+    assert!(same.description.as_deref().unwrap().starts_with("The final two celebrities"));
 }
 
 #[test]

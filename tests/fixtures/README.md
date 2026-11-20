@@ -9,6 +9,8 @@ The exceptions, trimmed from real responses in Nov 2026:
   out.
 - `plex_art.xml`: two channels from epgshare01's Plex guide (XMLTV), the
   same ones as `plex_mirror.json`, with their programmes for the same hours.
+- `roku_art.xml`: the same two Roku channels from the mirror's Roku guide
+  (XMLTV), with their programmes for one afternoon.
 - `roku_mirror.json`: the i.mjh.nz Roku channel file, plus one made-up
   entry with a bad id. The mirror's request headers are left out.
 

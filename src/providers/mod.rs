@@ -17,6 +17,7 @@ pub mod plex;
 pub mod pluto;
 pub mod roku;
 pub mod samsung;
+pub mod showart;
 pub mod tubi;
 pub mod xmltv;
 

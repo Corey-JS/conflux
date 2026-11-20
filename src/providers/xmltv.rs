@@ -63,7 +63,9 @@ pub fn parse(input: impl BufRead, from: u64, to: u64) -> Result<HashMap<String, 
                     b"title" if prog.is_some() => field = Field::Title,
                     b"sub-title" if prog.is_some() => field = Field::Subtitle,
                     b"desc" if prog.is_some() => field = Field::Description,
-                    b"value" if prog.is_some() => field = Field::Rating,
+                    // `<rating><value>TV-14</value></rating>`, or the rating
+                    // as the element's own text (Roku's guide).
+                    b"rating" | b"value" if prog.is_some() => field = Field::Rating,
                     b"icon" => icon(&e, prog.as_mut()),
                     _ => {}
                 }
@@ -92,7 +94,9 @@ pub fn parse(input: impl BufRead, from: u64, to: u64) -> Result<HashMap<String, 
                     (b"desc", Field::Description, Some((_, p))) => {
                         p.description = p.description.take().or(v);
                     }
-                    (b"value", Field::Rating, Some((_, p))) => p.rating = p.rating.take().or(v),
+                    (b"rating" | b"value", Field::Rating, Some((_, p))) => {
+                        p.rating = p.rating.take().or(v.map(|r| tv_rating(&r)));
+                    }
                     (b"channel", ..) => channel = None,
                     (b"programme", ..) => {
                         if let Some((id, p)) = prog.take() {
@@ -119,6 +123,16 @@ pub fn parse(input: impl BufRead, from: u64, to: u64) -> Result<HashMap<String, 
         c.programmes.sort_by_key(|p| p.start);
     }
     Ok(out)
+}
+
+/// US TV ratings with their dash ("TV14" becomes "TV-14"); others as given.
+fn tv_rating(r: &str) -> String {
+    match r.strip_prefix("TV") {
+        Some(rest) if (1..=3).contains(&rest.len()) && rest.bytes().all(|b| b.is_ascii_alphanumeric()) => {
+            format!("TV-{rest}")
+        }
+        _ => r.to_string(),
+    }
 }
 
 fn attr(e: &BytesStart, name: &str) -> Option<String> {
@@ -191,6 +205,24 @@ mod tests {
         assert_eq!(time("20261120082100"), Some(1_795_162_860));
         assert_eq!(time("2026112008"), None);
         assert_eq!(time("20261120082100 0500"), None);
+    }
+
+    #[test]
+    fn ratings_either_way_with_a_dash() {
+        let xml = r#"<tv>
+<programme start="20261120080000" stop="20261120090000" channel="a"><title>A</title>
+  <rating system="USA Parental Rating">TV14</rating><icon src="https://x/a.jpg"/></programme>
+<programme start="20261120090000" stop="20261120100000" channel="a"><title>B</title>
+  <rating system="US"><value>TV-PG</value></rating><icon src="https://x/b.jpg"/></programme>
+<programme start="20261120100000" stop="20261120110000" channel="a"><title>C</title>
+  <rating system="MPAA">PG-13</rating><icon src="https://x/c.jpg"/></programme>
+</tv>"#;
+        let g = parse(xml.as_bytes(), 0, u64::MAX).unwrap();
+        let ratings: Vec<_> = g["a"].programmes.iter().map(|p| p.rating.as_deref()).collect();
+        assert_eq!(ratings, [Some("TV-14"), Some("TV-PG"), Some("PG-13")]);
+        assert_eq!(tv_rating("TVMA"), "TV-MA");
+        assert_eq!(tv_rating("TVY7"), "TV-Y7");
+        assert_eq!(tv_rating("TV Land"), "TV Land");
     }
 
     #[test]

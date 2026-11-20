@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<tv generator-info-name="i.mjh.nz (trimmed for tests)">
+  <channel id="f9c0d48b540a55dcb98b04d2cc8abf25">
+    <display-name>LiveNOW from FOX</display-name>
+    <icon src="https://images.sr.roku.com/idType/roku-trc/context/trc/id/f9c0d48b540a55dcb98b04d2cc8abf25/https%3A%2F%2Fimage.roku.com%2Fbh-uploads%2Fproduction%2FinfoHUDLogo%2F1791311617245_LN-260x147-Roku-Info_HUD_Logo.png"/>
+    <lcn>103</lcn>
+  </channel>
+  <channel id="34b686f999ecaacfbcd91bb5195c3124">
+    <display-name>The Masked Singer</display-name>
+    <icon src="https://images.sr.roku.com/idType/roku-trc/context/trc/id/34b686f999ecaacfbcd91bb5195c3124/https%3A%2F%2Fimage.roku.com%2Fbh-uploads%2Fproduction%2FinfoHUDLogo%2F1739302196547_MS_ROKU_HUD_Logo_2.png"/>
+    <lcn>4360</lcn>
+  </channel>
+  <programme channel="f9c0d48b540a55dcb98b04d2cc8abf25" start="20261120140000 +0000" stop="20261120180000 +0000">
+    <title>LiveNOW from FOX</title>
+    <desc>Always LIVE, 24/7; raw &amp; unfiltered breaking news, live events and stories from across the nation.</desc>
+    <icon src="https://images.sr.roku.com/idType/roku-trc/context/trc/id/d497eb2e9b695efbb4976516f5043c70/images/gracenote/assets/p20209211_b_h8_ab.jpg"/>
+    <rating system="USA Parental Rating">TV14</rating>
+  </programme>
+  <programme channel="34b686f999ecaacfbcd91bb5195c3124" start="20261120150000 +0000" stop="20261120160000 +0000">
+    <title>The Masked Singer</title>
+    <sub-title>The Masked Singer</sub-title>
+    <desc>The final two celebrities deliver their performances before the winner is revealed.</desc>
+    <icon src="https://images.sr.roku.com/idType/roku-trc/context/trc/id/53139e92e2c15749be2f8b0aa3095dbb/rokuFeed/assets/13a5f36a885b5bb18766a1233841861a.jpg"/>
+    <episode-num system="onscreen">S11E13</episode-num>
+    <rating system="USA Parental Rating">TVPG</rating>
+  </programme>
+  <programme channel="34b686f999ecaacfbcd91bb5195c3124" start="20261120160000 +0000" stop="20261120170000 +0000">
+    <title>The Masked Singer</title>
+    <sub-title>The Masked Singer</sub-title>
+    <desc>Celebrity performances from five all-new masked celebrities and a jaw-dropping reveal.</desc>
+    <icon src="https://images.sr.roku.com/idType/roku-trc/context/trc/id/53139e92e2c15749be2f8b0aa3095dbb/rokuFeed/assets/13a5f36a885b5bb18766a1233841861a.jpg"/>
+    <episode-num system="onscreen">S12E01</episode-num>
+    <rating system="USA Parental Rating">TVPG</rating>
+  </programme>
+  <programme channel="34b686f999ecaacfbcd91bb5195c3124" start="20261120170000 +0000" stop="20261120180000 +0000">
+    <title>The Masked Singer</title>
+    <sub-title>The Masked Singer</sub-title>
+    <desc>Celebrating the 40th anniversary of the iconic film "Footloose."</desc>
+    <icon src="https://images.sr.roku.com/idType/roku-trc/context/trc/id/53139e92e2c15749be2f8b0aa3095dbb/rokuFeed/assets/13a5f36a885b5bb18766a1233841861a.jpg"/>
+    <episode-num system="onscreen">S12E02</episode-num>
+    <rating system="USA Parental Rating">TVPG</rating>
+  </programme>
+</tv>

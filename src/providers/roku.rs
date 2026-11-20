@@ -12,8 +12,13 @@
 //!
 //! Roku's search covers every channel on Roku, paid ones included, so each
 //! result is kept only if The Roku Channel itself offers it free.
+//!
+//! The channel list's schedules have titles only. Show art, episode names
+//! and descriptions come from the mirror's Roku guide file (XMLTV, same ids;
+//! see `showart`). That art is full size, so Conflux serves shrunken copies.
 
 use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -22,6 +27,7 @@ use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use super::json::{arr, at, str_of, strings, u32_of, year_of};
+use super::showart::{self, ShowArt};
 use super::{Provider, get_json, mjh};
 use crate::model::{Item, Kind, Program, clean, is_web_url};
 
@@ -36,10 +42,14 @@ const BASE: &str = "https://app.roku.com";
 const FREE_PROVIDER: &str = "rokuavod";
 
 const MIRROR_URL: &str = "https://i.mjh.nz/Roku/.channels.json.gz";
+const ART_URL: &str = "https://i.mjh.nz/Roku/all.xml.gz";
+/// The file is about 3.5 MB and covers about three days ahead.
+const ART_EVERY: Duration = Duration::from_secs(3 * 3600);
 
 pub struct Roku {
     csrf: Mutex<Option<String>>,
     schedules: mjh::Schedules,
+    art: showart::Feed,
 }
 
 impl Default for Roku {
@@ -53,7 +63,20 @@ impl Roku {
         Roku {
             csrf: Mutex::new(None),
             schedules: mjh::Schedules::default(),
+            art: showart::Feed::new("roku", "i.mjh.nz", ART_URL, ART_EVERY, showart::by_id),
         }
+    }
+
+    async fn programs(&self, http: &Client) -> Result<HashMap<String, Vec<Program>>> {
+        if let Some(map) = self.schedules.recent().await {
+            return Ok(map);
+        }
+        let v = mjh::fetch(http, MIRROR_URL)
+            .await
+            .context("Roku schedules (i.mjh.nz)")?;
+        let map = parse_programs(&v);
+        self.schedules.set(map.clone()).await;
+        Ok(map)
     }
 
     async fn csrf(&self, http: &Client, fresh: bool) -> Result<String> {
@@ -94,16 +117,17 @@ impl Provider for Roku {
     fn has_guide(&self) -> bool {
         true
     }
-    async fn guide(&self, http: &Client, _channels: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
-        if let Some(map) = self.schedules.recent().await {
-            return Ok(map);
+    async fn guide(&self, http: &Client, channels: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
+        let (map, art) = tokio::join!(self.programs(http), self.art.get(http));
+        let mut map = map?;
+        if let Some(art) = art {
+            let n = add_art(&mut map, channels, &art);
+            tracing::info!("roku: show art for {n} programs");
         }
-        let v = mjh::fetch(http, MIRROR_URL)
-            .await
-            .context("Roku schedules (i.mjh.nz)")?;
-        let map = parse_programs(&v);
-        self.schedules.set(map.clone()).await;
         Ok(map)
+    }
+    fn shrink_art(&self) -> bool {
+        true
     }
     fn has_search(&self) -> bool {
         true
@@ -155,6 +179,16 @@ pub fn parse_programs(v: &Value) -> HashMap<String, Vec<Program>> {
             (!programs.is_empty()).then(|| (format!("roku:{id}"), programs))
         })
         .collect()
+}
+
+/// Show art from the mirror's Roku guide (`bytes`, gzip or not; see `showart`).
+pub fn parse_art(bytes: &[u8], now: u64) -> Result<ShowArt> {
+    ShowArt::parse(bytes, now, showart::by_id)
+}
+
+/// Add show art to Roku's schedules, matching channels by Roku's id.
+pub fn add_art(guide: &mut HashMap<String, Vec<Program>>, channels: &[Item], art: &ShowArt) -> usize {
+    showart::add_art(guide, channels, art, |ch| ch.id.strip_prefix("roku:").map(str::to_string))
 }
 
 /// Ids go into URLs, so only plain ones are accepted.
