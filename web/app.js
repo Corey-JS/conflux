@@ -74,6 +74,75 @@ function row(item) {
   return el("li", {}, a);
 }
 
+// ---- TV guide (live channels with what's on now and next) ----
+const fmtTime = new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit" });
+const live = { items: [], skew: 0 }; // skew: server clock minus ours, in ms
+const expanded = new Set();
+const serverNow = () => Date.now() + live.skew;
+const clock = (sec) => fmtTime.format(new Date(sec * 1000));
+
+function guideRow(item) {
+  const t = serverNow() / 1000;
+  const progs = (item.programs || []).filter((p) => p.stop > t);
+  if (!progs.length) return row(item);
+  const [now, ...later] = progs;
+  const airing = now.start <= t;
+  const pct = airing ? Math.min(100, Math.max(0, ((t - now.start) / (now.stop - now.start)) * 100)) : 0;
+
+  // Art for the show that's on, like album art; the channel logo is the fallback.
+  const art = now.image || item.image;
+  const thumb = el("div", { class: "thumb " + (now.image ? "poster" : "logo") });
+  if (art) {
+    const img = el("img", { src: art, alt: "", loading: "lazy", decoding: "async", referrerpolicy: "no-referrer" });
+    img.addEventListener("error", () => {
+      img.remove();
+      if (item.image && art !== item.image) {
+        thumb.className = "thumb logo";
+        thumb.append(el("img", { src: item.image, alt: "", referrerpolicy: "no-referrer" }));
+      } else thumb.textContent = initial(item.title);
+    }, { once: true });
+    thumb.append(img);
+  } else thumb.textContent = initial(item.title);
+
+  const chan = el("div", { class: "meta" }, el("i", { class: "dot " + item.provider }),
+    el("span", {}, [item.channel_number ? "Ch " + item.channel_number : null, item.title].filter(Boolean).join(" · ")));
+  const when = airing ? `${clock(now.start)} – ${clock(now.stop)}` : `Starts ${clock(now.start)}`;
+  const sub = [now.subtitle, when, now.rating].filter(Boolean).join(" · ");
+  const info = el("div", { class: "info" }, chan,
+    el("div", { class: "title" }, now.title),
+    el("div", { class: "g-sub" }, sub));
+  if (airing) info.append(el("div", { class: "bar", "aria-hidden": "true" }, el("i", { style: `width:${pct.toFixed(1)}%` })));
+  if (later[0]) info.append(el("div", { class: "g-next" }, el("b", {}, "Next "), `${clock(later[0].start)}  ${later[0].title}`));
+
+  const watch = el("a", { class: "watch", href: item.watch_url, target: "_blank", rel: "noopener noreferrer", "aria-label": `Watch ${item.title}` },
+    svg("M7 17L17 7M9 7h8v8"));
+  const open = expanded.has(item.id);
+  const main = el("div", { class: "g-main", role: "button", tabindex: "0", "aria-expanded": String(open) }, thumb, info, watch);
+
+  const sched = el("ol", { class: "g-sched" }, ...progs.map((p) =>
+    el("li", {}, el("time", {}, clock(p.start)),
+      el("div", {}, el("b", {}, p.title), p.subtitle ? el("span", {}, " · " + p.subtitle) : null,
+        p.description ? el("p", {}, p.description) : null))));
+  sched.hidden = !open;
+
+  const toggle = () => {
+    const o = main.getAttribute("aria-expanded") !== "true";
+    main.setAttribute("aria-expanded", String(o));
+    sched.hidden = !o;
+    if (o) expanded.add(item.id); else expanded.delete(item.id);
+  };
+  main.addEventListener("click", (e) => { if (!e.target.closest("a")) toggle(); });
+  main.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target === main) { e.preventDefault(); toggle(); }
+  });
+  return el("li", { class: "guide" }, main, sched);
+}
+
+function renderGuide() {
+  els.results.replaceChildren(...live.items.map(guideRow).filter(Boolean));
+  if (!live.items.length) note("No live channels loaded yet. Try again in a minute.");
+}
+
 function initial(title) {
   return (title || "?").trim().charAt(0).toUpperCase();
 }
@@ -132,7 +201,9 @@ async function update() {
       const p = params({ limit: "400" });
       p.delete("kind");
       const data = await getJSON("/api/live?" + p, signal);
-      render(data.items, "No live channels loaded yet. Try again in a minute.");
+      live.items = data.items;
+      live.skew = data.now ? data.now * 1000 - Date.now() : 0;
+      renderGuide();
       return;
     }
     els.heading.textContent = "Results";
@@ -214,6 +285,14 @@ function init() {
   });
 
   loadProviders().then(() => update());
+
+  // Keep "now" honest: redraw progress every 30s, refetch schedules every 5 min.
+  let lastFetch = Date.now();
+  setInterval(() => {
+    if (document.hidden || state.q.trim() || state.kind === "movie" || state.kind === "series") return;
+    if (Date.now() - lastFetch > 5 * 60 * 1000) { lastFetch = Date.now(); update(); } else if (live.items.length) renderGuide();
+  }, 30 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(0); });
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});

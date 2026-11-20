@@ -1,0 +1,5 @@
+{"data":[{"channelId":"abc123","channelSlug":"x","timelines":[
+ {"start":"2026-11-19T22:19:00.000Z","stop":"2026-11-19T22:50:00.000Z","title":"Some Movie","episode":{"name":"Some Movie","description":"  A movie.  ","rating":"PG"}},
+ {"start":"2026-11-19T21:51:00.000Z","stop":"2026-11-19T22:19:00.000Z","title":"Paddington: A Visit","episode":{"name":"A Visit","description":"Hospital.","rating":"TV-Y","poster":{"path":"https://images.pluto.tv/e/poster.jpg?fill=blur&fm=jpg&h=1000&w=694"},"series":{"name":"Paddington"}}},
+ {"start":"bad","stop":"2026-11-19T23:00:00.000Z","title":"Broken"}
+]}]}

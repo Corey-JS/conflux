@@ -6,6 +6,7 @@
 //! token-free channel list.
 
 use std::collections::{HashMap, HashSet};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -14,7 +15,7 @@ use serde_json::Value;
 
 use super::json::{arr, at, str_of, strings, u32_of};
 use super::{Provider, get_json};
-use crate::model::{Item, Kind, clean, is_web_url};
+use crate::model::{Item, Kind, Program, clean, is_web_url, iso_to_unix};
 
 const BOOT_URL: &str = "https://boot.pluto.tv/v4/start";
 const DEFAULT_CHANNELS: &str = "https://service-channels.clusters.pluto.tv";
@@ -130,6 +131,12 @@ impl Provider for Pluto {
     fn has_catalog(&self) -> bool {
         true
     }
+    fn has_guide(&self) -> bool {
+        true
+    }
+    async fn guide(&self, http: &Client, channels: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
+        self.timelines(http, channels).await
+    }
     async fn catalog(&self, http: &Client) -> Result<Vec<Item>> {
         let first = match self.modern(http).await {
             Ok(items) if !items.is_empty() => return Ok(items),
@@ -142,6 +149,133 @@ impl Provider for Pluto {
             Err(e) => anyhow::bail!("web app API: {first}; legacy list: {e:#}"),
         }
     }
+}
+
+impl Pluto {
+    /// What's on now and the next few hours, for the given live channels.
+    async fn timelines(&self, http: &Client, channels: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
+        let s = self.boot(http).await?;
+        let auth = format!("Bearer {}", s.token);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let start = iso_from_unix(now - now % 60);
+        let ids: Vec<&str> = channels
+            .iter()
+            .filter_map(|c| c.id.strip_prefix("pluto:"))
+            .collect();
+
+        // Modest chunks keep each response (and its parse) small on a 1 GB VM.
+        let requests = ids.chunks(50).map(|chunk| {
+            let list = chunk.join(",");
+            let req = http
+                .get(format!("{}/v2/guide/timelines", s.channels))
+                .header("Authorization", &auth)
+                .query(&[
+                    ("start", start.as_str()),
+                    ("channelIds", list.as_str()),
+                    ("duration", "360"),
+                ]);
+            async move { get_json(req).await }
+        });
+        let mut out = HashMap::new();
+        let mut last_err = None;
+        for res in futures::future::join_all(requests).await {
+            match res {
+                Ok(v) => out.extend(parse_timelines(&v)),
+                Err(e) => last_err = Some(e),
+            }
+        }
+        if out.is_empty()
+            && let Some(e) = last_err
+        {
+            return Err(e.context("Pluto timelines"));
+        }
+        Ok(out)
+    }
+}
+
+/// `/v2/guide/timelines` → `{ data: [ { channelId, timelines: [ { start, stop, title, episode:{ name, description, rating, series:{name} } } ] } ] }`
+/// Keyed by item id ("pluto:<channelId>").
+pub fn parse_timelines(v: &Value) -> HashMap<String, Vec<Program>> {
+    let mut out = HashMap::new();
+    for ch in arr(v, &["data"]) {
+        let Some(cid) = str_of(ch, &["channelId"]) else {
+            continue;
+        };
+        let mut progs: Vec<Program> = Vec::new();
+        for t in arr(ch, &["timelines"]) {
+            let (Some(start), Some(stop)) = (
+                str_of(t, &["start"]).and_then(|s| iso_to_unix(&s)),
+                str_of(t, &["stop"]).and_then(|s| iso_to_unix(&s)),
+            ) else {
+                continue;
+            };
+            let ep = t.get("episode").unwrap_or(&Value::Null);
+            let series = at(ep, &["series", "name"])
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let title = clean(series.clone().or_else(|| str_of(t, &["title"])))
+                .or_else(|| clean(str_of(ep, &["name"])));
+            let Some(title) = title else { continue };
+            let subtitle = clean(str_of(ep, &["name"])).filter(|n| *n != title);
+            let description = clean(str_of(ep, &["description"]))
+                .map(|d| d.chars().take(400).collect::<String>());
+            progs.push(Program {
+                start,
+                stop,
+                title,
+                subtitle,
+                description,
+                rating: clean(str_of(ep, &["rating"])).filter(|r| r != "Not Rated"),
+                image: ["poster", "thumbnail", "poster16_9"]
+                    .iter()
+                    .find_map(|k| at(ep, &[k, "path"]).and_then(Value::as_str))
+                    .filter(|u| is_web_url(u))
+                    .map(|u| resize_image(u, 208, 300)),
+            });
+        }
+        progs.sort_by_key(|p| p.start);
+        out.insert(format!("pluto:{cid}"), progs);
+    }
+    out
+}
+
+/// Pluto's image URLs take `w`/`h` query params; ask for phone-sized art
+/// instead of the 700x1000 originals so a 450-channel guide stays light.
+fn resize_image(url: &str, w: u32, h: u32) -> String {
+    let Some((base, query)) = url.split_once('?') else {
+        return url.to_string();
+    };
+    let mut params: Vec<String> = query
+        .split('&')
+        .filter(|p| !p.starts_with("w=") && !p.starts_with("h="))
+        .map(str::to_string)
+        .collect();
+    params.push(format!("h={h}"));
+    params.push(format!("w={w}"));
+    format!("{base}?{}", params.join("&"))
+}
+
+fn iso_from_unix(t: u64) -> String {
+    let (days, rem) = (t / 86_400, t % 86_400);
+    // Civil-from-days (Howard Hinnant).
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.000Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
 }
 
 fn live_url(id: &str) -> String {

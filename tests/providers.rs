@@ -165,3 +165,23 @@ fn samsung_channels() {
     assert_eq!(items[1].genres, vec!["Entertainment"]);
     assert!(samsung::parse_channels(&fixture("samsung_channels.json"), "zz").is_empty());
 }
+
+#[test]
+fn pluto_timelines_become_sorted_programs() {
+    let map = pluto::parse_timelines(&fixture("pluto_timelines.json"));
+    let ps = &map["pluto:abc123"];
+    assert_eq!(ps.len(), 2, "the entry with a bad time is skipped");
+    assert_eq!(ps[0].title, "Paddington");
+    assert_eq!(ps[0].subtitle.as_deref(), Some("A Visit"));
+    assert_eq!(ps[0].rating.as_deref(), Some("TV-Y"));
+    assert_eq!(ps[0].stop, ps[1].start, "sorted by start time");
+    assert_eq!(ps[1].title, "Some Movie");
+    assert_eq!(ps[1].subtitle, None, "movie name isn't repeated as a subtitle");
+    assert_eq!(ps[1].description.as_deref(), Some("A movie."));
+    assert_eq!(
+        ps[0].image.as_deref(),
+        Some("https://images.pluto.tv/e/poster.jpg?fill=blur&fm=jpg&h=300&w=208"),
+        "art is requested at phone size"
+    );
+    assert_eq!(ps[1].image, None);
+}

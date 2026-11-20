@@ -11,13 +11,17 @@ use reqwest::Client;
 use serde::Serialize;
 use tokio::sync::{Mutex, RwLock};
 
-use crate::model::{Item, Kind};
+use crate::model::{Item, Kind, LiveEntry, Program};
 use crate::providers::Provider;
 use crate::search::{Indexed, Query, rank};
 
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(7);
 const SEARCH_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const SEARCH_CACHE_MAX: usize = 500;
+const GUIDE_EVERY: Duration = Duration::from_secs(20 * 60);
+/// How far ahead the guide view shows.
+const GUIDE_AHEAD_SECS: u64 = 6 * 3600;
+const GUIDE_MAX_PROGRAMS: usize = 8;
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct Status {
@@ -35,12 +39,23 @@ pub struct Status {
     pub search_ok_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search_error: Option<String>,
+    /// Live channels that currently have a schedule.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub guide_channels: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guide_error: Option<String>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 #[derive(Default)]
 struct State {
     catalogs: HashMap<String, Vec<Indexed>>,
     status: HashMap<String, Status>,
+    /// provider id -> item id -> upcoming programs.
+    guides: HashMap<String, HashMap<String, Vec<Program>>>,
 }
 
 pub struct Store {
@@ -166,6 +181,50 @@ impl Store {
 
     pub async fn refresh_all(&self) {
         join_all(self.providers.iter().map(|p| self.refresh(p))).await;
+        self.refresh_guides().await;
+    }
+
+    /// Download schedules for every provider that has one. On failure the
+    /// previous schedule is kept (it simply runs out, never goes blank).
+    pub async fn refresh_guides(&self) {
+        join_all(self.providers.iter().filter(|p| p.has_guide()).map(|p| async move {
+            let channels: Vec<Item> = {
+                let st = self.state.read().await;
+                st.catalogs
+                    .get(p.id())
+                    .map(|c| {
+                        c.iter()
+                            .filter(|i| i.item.kind == Kind::Live)
+                            .map(|i| i.item.clone())
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+            if channels.is_empty() {
+                return;
+            }
+            let res = p.guide(&self.http, &channels).await;
+            let mut st = self.state.write().await;
+            match res {
+                Ok(map) if !map.is_empty() => {
+                    tracing::info!("{}: schedule for {} channels", p.id(), map.len());
+                    let status = st.status.entry(p.id().to_string()).or_default();
+                    status.guide_channels = map.len();
+                    status.guide_error = None;
+                    st.guides.insert(p.id().to_string(), map);
+                }
+                Ok(_) => {
+                    let status = st.status.entry(p.id().to_string()).or_default();
+                    status.guide_error = Some("returned no schedule".into());
+                }
+                Err(e) => {
+                    tracing::warn!("{}: schedule failed: {e:#}", p.id());
+                    let status = st.status.entry(p.id().to_string()).or_default();
+                    status.guide_error = Some(short(&e));
+                }
+            }
+        }))
+        .await;
     }
 
     /// Refresh every `every`, forever.
@@ -175,6 +234,14 @@ impl Store {
             loop {
                 store.refresh_all().await;
                 tokio::time::sleep(every).await;
+            }
+        });
+        // Schedules go stale much faster than channel lists.
+        let store = Arc::clone(self);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(GUIDE_EVERY).await;
+                store.refresh_guides().await;
             }
         });
     }
@@ -208,6 +275,31 @@ impl Store {
             }
         }
         out
+    }
+
+    /// Live channels with what's on now and next, for the TV-guide view.
+    pub async fn live_guide(&self, filter: &Filter) -> Vec<LiveEntry> {
+        let items = self.live(filter).await;
+        let st = self.state.read().await;
+        let t = now();
+        items
+            .into_iter()
+            .map(|item| {
+                let programs = st
+                    .guides
+                    .get(&item.provider)
+                    .and_then(|g| g.get(&item.id))
+                    .map(|ps| {
+                        ps.iter()
+                            .filter(|p| p.stop > t && p.start < t + GUIDE_AHEAD_SECS)
+                            .take(GUIDE_MAX_PROGRAMS)
+                            .cloned()
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                LiveEntry { item, programs }
+            })
+            .collect()
     }
 
     async fn remote_search(&self, p: &Arc<dyn Provider>, q: &str) -> Result<Vec<Item>, ()> {

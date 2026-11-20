@@ -2,13 +2,14 @@
 //! into `Item`s. A provider failing never affects the others: errors are
 //! caught per provider and shown on /api/providers.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
 
-use crate::model::Item;
+use crate::model::{Item, Program};
 
 pub mod json;
 pub mod plex;
@@ -32,6 +33,15 @@ pub trait Provider: Send + Sync {
     /// Download the whole catalog. Called on a timer.
     async fn catalog(&self, _http: &Client) -> Result<Vec<Item>> {
         Ok(Vec::new())
+    }
+
+    /// True if this provider can say what's on each live channel right now.
+    fn has_guide(&self) -> bool {
+        false
+    }
+    /// Upcoming programs for these live channels, keyed by `Item::id`.
+    async fn guide(&self, _http: &Client, _channels: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
+        Ok(HashMap::new())
     }
 
     /// True if this provider is searched live, per query, because its
