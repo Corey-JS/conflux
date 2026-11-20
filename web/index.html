@@ -19,7 +19,8 @@
 </head>
 <body>
   <header class="top">
-    <div class="brand"><img src="/icons/favicon-32.png" alt="" width="22" height="22"><span>Conflux</span></div>
+    <div class="brand"><img src="/icons/favicon-32.png" alt="" width="22" height="22"><span>Conflux</span>
+      <button type="button" id="profile-btn" class="profile-btn" aria-haspopup="dialog" aria-label="Profiles"></button></div>
     <form class="search" role="search" id="search-form">
       <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
       <input id="q" type="search" inputmode="search" enterkeyhint="search" autocomplete="off"
@@ -33,13 +34,40 @@
       <button data-kind="series" aria-pressed="false">Shows</button>
     </nav>
     <div class="providers" id="providers" aria-label="Provider"></div>
+    <div class="providers genres" id="genres" aria-label="Genre" hidden></div>
   </header>
 
   <main>
-    <p class="section-title" id="heading">Live channels</p>
+    <div class="list-head">
+      <p class="section-title" id="heading">Live channels</p>
+      <button type="button" id="edit" class="edit-btn" aria-pressed="false" hidden>Edit</button>
+    </div>
+    <p class="edit-hint" id="edit-hint" hidden>Tap <b aria-hidden="true">&minus;</b> to hide channels you don't watch. Hide whole genres or providers, or bring channels back, from your profile.</p>
     <ul class="results" id="results" aria-live="polite"></ul>
     <p class="note" id="note" hidden></p>
   </main>
+
+  <dialog id="profiles" class="sheet" aria-labelledby="profiles-title">
+    <div class="sheet-head">
+      <h2 id="profiles-title">Profiles</h2>
+      <button type="button" class="sheet-close" id="profiles-close" aria-label="Close">&times;</button>
+    </div>
+    <p class="sheet-note">Saved on this device only.</p>
+    <ul class="plist" id="plist"></ul>
+    <div class="sheet-actions">
+      <button type="button" id="p-add">Add profile</button>
+      <button type="button" id="p-rename">Rename</button>
+      <button type="button" id="p-delete" class="danger">Delete</button>
+    </div>
+    <h3>Hide whole groups</h3>
+    <p class="sheet-note">Tap to hide or bring back. Crossed out means hidden.</p>
+    <div id="groups"></div>
+    <h3 id="hidden-title">Hidden channels</h3>
+    <ul class="hlist" id="hlist"></ul>
+    <p class="sheet-note" id="hidden-empty">None yet. Tap Edit above the channel list to hide some.</p>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden><span id="toast-text"></span><button type="button" id="toast-undo">Undo</button></div>
 
   <noscript><p class="note">Conflux needs JavaScript to search.</p></noscript>
 </body>

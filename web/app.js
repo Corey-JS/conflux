@@ -5,9 +5,11 @@ const $ = (id) => document.getElementById(id);
 const els = {
   form: $("search-form"), q: $("q"), clear: $("clear"), providers: $("providers"),
   results: $("results"), heading: $("heading"), note: $("note"),
+  edit: $("edit"), editHint: $("edit-hint"), profileBtn: $("profile-btn"), sheet: $("profiles"),
+  plist: $("plist"), hlist: $("hlist"), toast: $("toast"), genres: $("genres"), groups: $("groups"),
 };
 
-const state = { q: "", kind: "all", provider: "all" };
+const state = { q: "", kind: "all", provider: "all", genre: "all" };
 const names = {}; // provider id -> display name
 let inflight = null;
 let timer = null;
@@ -16,6 +18,105 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
 };
+
+// ---- Genres ----
+// Each provider names its genres its own way (Plex "Kids & Family", Pluto
+// "Kids", Roku "Children-Music"), about 110 labels in all. Each label goes in
+// the first group whose pattern it matches; anything left over is "Other".
+const GENRES = [
+  ["News", /news|weather|opinion/i],
+  ["En Español", /espa[nñ]ol|spanish|latino/i],
+  ["Kids & Family", /kid|famil|child|animated|cartoon/i],
+  ["Anime", /anime/i],
+  ["Sports", /sport|ball|soccer|boxing|wrestl|racing|olympic|hockey|bowling|billiard|martial|fishing|bik|bicycle|bmx|poker|outdoor|^auto$/i],
+  ["Music", /music/i],
+  ["Crime & Mystery", /crime|law|mystery|suspense|thriller|paranormal/i],
+  ["Sci-Fi & Action", /sci-fi|science fiction|action|adventure|fantasy|horror|adrenaline/i],
+  ["Comedy", /comed|sitcom/i],
+  ["Drama", /drama|romance/i],
+  ["Movies", /movie/i],
+  ["Classic TV", /classic|western/i],
+  ["Reality", /reality|bingeworthy|auction|medical/i],
+  ["Game Shows & Talk", /game show|daytime|talk|card game/i],
+  ["Food & Home", /food|home|cook|house|garden|travel|fashion|shopping/i],
+  ["Nature & Science", /nature|animal|science|history|documentar|educat|explore|environment/i],
+  ["Global", /global|international/i],
+  ["Faith", /faith|relig/i],
+  ["Entertainment", /entertain|special|season/i],
+];
+const OTHER = "Other";
+const genreOrder = new Map([...GENRES.map(([g]) => g), OTHER].map((g, i) => [g, i]));
+
+function genreOf(label) {
+  const hit = GENRES.find(([, re]) => re.test(label));
+  return hit ? hit[0] : OTHER;
+}
+
+// The genre groups a channel belongs to (cached on the item).
+function genresOf(item) {
+  if (!item._g) {
+    const set = new Set((item.genres || []).map(genreOf));
+    if (!set.size) set.add(OTHER);
+    item._g = [...set];
+  }
+  return item._g;
+}
+
+// ---- Profiles: who's watching, and the channels each person has hidden ----
+// Saved on this device only, as { current, list: [{ id, name, hidden }] }.
+// `hidden` maps a channel's id to its title and provider, so the list of
+// hidden channels can be shown even when that provider is down.
+const profiles = {
+  list: [],
+  current: null,
+  load() {
+    try {
+      const d = JSON.parse(store.get("profiles") || "null");
+      if (d && Array.isArray(d.list)) {
+        this.list = d.list.filter((p) => p && p.id && typeof p.name === "string")
+          .map((p) => ({
+            id: p.id, name: p.name,
+            hidden: p.hidden && typeof p.hidden === "object" ? p.hidden : {},
+            hiddenGenres: Array.isArray(p.hiddenGenres) ? p.hiddenGenres : [],
+            hiddenProviders: Array.isArray(p.hiddenProviders) ? p.hiddenProviders : [],
+          }));
+        this.current = d.current;
+      }
+    } catch { /* start fresh */ }
+    if (!this.list.length) this.list.push(this.make("Me"));
+    if (!this.list.some((p) => p.id === this.current)) this.current = this.list[0].id;
+  },
+  save() { store.set("profiles", JSON.stringify({ current: this.current, list: this.list })); },
+  make(name) {
+    return { id: "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, hidden: {}, hiddenGenres: [], hiddenProviders: [] };
+  },
+  get me() { return this.list.find((p) => p.id === this.current); },
+  // A hidden provider hides everything from it; hidden genres and single
+  // channels apply to live channels only (movies and shows use other genre names).
+  isHidden(item) {
+    const me = this.me;
+    if (me.hiddenProviders.includes(item.provider)) return true;
+    if (item.kind !== "live") return false;
+    return Object.hasOwn(me.hidden, item.id) || genresOf(item).some((g) => me.hiddenGenres.includes(g));
+  },
+  providerHidden(id) { return this.me.hiddenProviders.includes(id); },
+  toggle(listName, value) {
+    const list = this.me[listName];
+    const i = list.indexOf(value);
+    if (i < 0) list.push(value); else list.splice(i, 1);
+    this.save();
+  },
+  hide(item) { this.me.hidden[item.id] = { title: item.title, provider: item.provider }; this.save(); },
+  unhide(id) { delete this.me.hidden[id]; this.save(); },
+};
+
+const AVATAR_COLORS = ["#5ee6c9", "#ffd23f", "#ff7a3d", "#a77bfa", "#5b8cff", "#ff6b9a"];
+function avatar(p) {
+  let h = 0;
+  for (const c of p.id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return el("span", { class: "avatar", style: `background:${AVATAR_COLORS[h % AVATAR_COLORS.length]}`, "aria-hidden": "true" },
+    (p.name.trim().charAt(0) || "?").toUpperCase());
+}
 
 function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
@@ -151,6 +252,15 @@ function guideRow(item, t) {
   return { li, bar, start: now.start, stop: now.stop };
 }
 
+// Each guide row carries a hide button, shown only while editing.
+function guideEntry(item, t) {
+  const r = guideRow(item, t);
+  if (!r.li) return r;
+  r.li.classList.add("hideable");
+  r.li.append(el("button", { type: "button", class: "hide", "data-hide": item.id, "aria-label": `Hide ${item.title}` }, "\u2212"));
+  return r;
+}
+
 function schedList(progs) {
   return el("ol", { class: "g-sched" }, ...progs.map((p) =>
     el("li", {}, el("time", {}, clock(p.start)),
@@ -163,7 +273,7 @@ function schedList(progs) {
 // batch is added when the end of the list comes within a few screens.
 const GUIDE_BATCH = 50;
 let guideNext = 0; // index in live.items of the next row to build
-let guideFor = null; // the provider filter the guide was drawn for
+let guideFor = null; // the provider and genre filters the guide was drawn for
 const guideEnd = el("li", { class: "guide-end", "aria-hidden": "true" });
 const guideMore = "IntersectionObserver" in window
   ? new IntersectionObserver((entries) => {
@@ -174,8 +284,9 @@ const guideMore = "IntersectionObserver" in window
 function renderGuide() {
   // A refresh of the same list rebuilds as many rows as were showing, so
   // the scroll position holds. A different filter starts from the top batch.
-  const keep = view === "guide" && guideFor === state.provider ? guideRows.length : 0;
-  guideFor = state.provider;
+  const drawnFor = state.provider + "|" + state.genre;
+  const keep = view === "guide" && guideFor === drawnFor ? guideRows.length : 0;
+  guideFor = drawnFor;
   guideRows = [];
   guideNext = 0;
   // Rows added while scrolling, or rebuilt as shows change, aren't news to
@@ -188,6 +299,9 @@ function renderGuide() {
   if (!keep) window.scrollTo(0, 0);
   appendGuideRows(Math.max(GUIDE_BATCH, keep));
   if (!live.items.length) note("No live channels loaded yet. Try again in a minute.");
+  else if (!guideRows.length) {
+    note(state.genre !== "all" ? `No ${state.genre} channels here.` : "Every channel here is hidden. Open your profile to bring some back.");
+  }
 }
 
 function appendGuideRows(n) {
@@ -195,7 +309,9 @@ function appendGuideRows(n) {
   const lis = [];
   while (lis.length < n && guideNext < live.items.length) {
     const item = live.items[guideNext++];
-    const r = guideRow(item, t);
+    if (profiles.isHidden(item)) continue;
+    if (state.genre !== "all" && !genresOf(item).includes(state.genre)) continue;
+    const r = guideEntry(item, t);
     if (!r.li) continue;
     guideRows.push({ item, key: guideKey(item, t), ...r });
     lis.push(r.li);
@@ -218,7 +334,7 @@ function tickGuide() {
   for (const r of guideRows) {
     const key = guideKey(r.item, t);
     if (key !== r.key) {
-      const fresh = guideRow(r.item, t);
+      const fresh = guideEntry(r.item, t);
       if (!fresh.li) continue;
       r.li.replaceWith(fresh.li);
       Object.assign(r, { bar: null }, fresh, { key });
@@ -247,7 +363,7 @@ function note(text) {
 
 function render(items, emptyText) {
   els.results.setAttribute("aria-live", "polite");
-  els.results.replaceChildren(...items.map(row).filter(Boolean));
+  els.results.replaceChildren(...items.filter((i) => !profiles.isHidden(i)).map(row).filter(Boolean));
   view = "results";
   if (!items.length) note(emptyText);
 }
@@ -276,6 +392,9 @@ async function update() {
   if (q) url.searchParams.set("q", q); else url.searchParams.delete("q");
   history.replaceState(null, "", url);
 
+  els.edit.hidden = true;
+  els.genres.hidden = true;
+  if (q) setEditing(false);
   try {
     if (!q) {
       if (state.kind === "movie" || state.kind === "series") {
@@ -286,6 +405,7 @@ async function update() {
         return;
       }
       els.heading.textContent = "Live channels";
+      els.edit.hidden = false;
       // A background refresh redraws in place instead of flashing the skeleton.
       if (view !== "guide") skeleton();
       const p = params({}); // no limit: the server sends whole lineups
@@ -294,6 +414,7 @@ async function update() {
       live.items = data.items;
       live.skew = data.now ? data.now * 1000 - Date.now() : 0;
       live.fetchedAt = Date.now();
+      renderGenres();
       renderGuide();
       return;
     }
@@ -326,31 +447,224 @@ function setPressed(container, attr, value) {
   }
 }
 
+let providerList = []; // from /api/providers
+
 async function loadProviders() {
-  let list = [];
   try {
-    list = (await getJSON("/api/providers")).providers || [];
+    providerList = (await getJSON("/api/providers")).providers || [];
   } catch { /* chips are optional */ }
+  for (const p of providerList) names[p.id] = p.name;
+  renderProviders();
+}
+
+// Provider chips, minus the ones this profile has hidden.
+function renderProviders() {
   const chip = (id, label, down) => {
     const b = el("button", { type: "button", "data-provider": id, "aria-pressed": String(state.provider === id), class: down ? "down" : null });
     if (id !== "all") b.append(el("i", { class: "dot " + id }));
     b.append(label);
     return b;
   };
+  const shown = providerList.filter((p) => !profiles.providerHidden(p.id));
   const chips = [chip("all", "All providers")];
-  for (const p of list) {
-    names[p.id] = p.name;
+  for (const p of shown) {
     const down = Boolean(p.catalog_error && !p.catalog_items) || Boolean(p.search_error && !p.mode.includes("catalog"));
     chips.push(chip(p.id, p.name, down));
   }
-  if (state.provider !== "all" && !names[state.provider]) state.provider = "all";
+  if (state.provider !== "all" && !shown.some((p) => p.id === state.provider)) {
+    state.provider = "all";
+    store.set("provider", "all");
+  }
   els.providers.replaceChildren(...chips);
-  setPressed(els.providers, "provider", state.provider);
+}
+
+// Genre chips for the guide: the groups in the loaded lineup that this
+// profile hasn't hidden, busiest first. The chosen one stays even when the
+// current provider has none, so it can be switched off.
+function renderGenres() {
+  const count = new Map();
+  for (const item of live.items) {
+    if (profiles.isHidden(item)) continue;
+    for (const g of genresOf(item)) count.set(g, (count.get(g) || 0) + 1);
+  }
+  if (state.genre !== "all" && profiles.me.hiddenGenres.includes(state.genre)) {
+    state.genre = "all";
+    store.set("genre", "all");
+  }
+  if (state.genre !== "all" && !count.has(state.genre)) count.set(state.genre, 0);
+  const genres = [...count.keys()].sort((a, b) =>
+    (a === OTHER) - (b === OTHER) || count.get(b) - count.get(a) || genreOrder.get(a) - genreOrder.get(b));
+  const chip = (g, label) => el("button", { type: "button", "data-genre": g, "aria-pressed": String(state.genre === g) }, label);
+  els.genres.replaceChildren(chip("all", "All genres"), ...genres.map((g) => chip(g, g)));
+  els.genres.hidden = genres.length < 2;
+}
+
+// ---- Editing the guide: hide channels with an undo ----
+function setEditing(on) {
+  document.body.classList.toggle("editing", on);
+  els.edit.setAttribute("aria-pressed", String(on));
+  els.edit.textContent = on ? "Done" : "Edit";
+  els.editHint.hidden = !on;
+}
+
+function hideChannel(id) {
+  const i = guideRows.findIndex((r) => r.item.id === id);
+  if (i < 0) return;
+  const [r] = guideRows.splice(i, 1);
+  profiles.hide(r.item);
+  r.li.remove();
+  expanded.delete(id);
+  renderProfileBtn();
+  toast(`Hid ${r.item.title}`, () => { profiles.unhide(id); renderProfileBtn(); renderGuide(); });
+  // Keep the list topped up so hiding a run of channels never empties the screen.
+  if (guideRows.length < GUIDE_BATCH && guideNext < live.items.length) appendGuideRows(GUIDE_BATCH);
+}
+
+let toastTimer = null;
+let toastUndo = null;
+function toast(text, undo) {
+  $("toast-text").textContent = text;
+  toastUndo = undo;
+  els.toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { els.toast.hidden = true; toastUndo = null; }, 5000);
+}
+
+// ---- Profile sheet ----
+function renderProfileBtn() {
+  const me = profiles.me;
+  els.profileBtn.replaceChildren(avatar(me), el("span", { class: "pname" }, me.name));
+  els.profileBtn.setAttribute("aria-label", `Profile: ${me.name}. Change profile or hidden channels`);
+}
+
+function renderSheet() {
+  els.plist.replaceChildren(...profiles.list.map((p) => {
+    const n = Object.keys(p.hidden).length;
+    const on = p.id === profiles.current;
+    return el("li", {}, el("button", { type: "button", "data-profile": p.id, "aria-pressed": String(on) },
+      avatar(p), el("span", { class: "pl-name" }, p.name),
+      el("span", { class: "pl-count" }, n ? `${n} hidden` : ""), on ? el("span", { class: "check", "aria-hidden": "true" }, "✓") : null));
+  }));
+  $("p-delete").disabled = profiles.list.length < 2;
+  renderGroups();
+
+  const hidden = Object.entries(profiles.me.hidden)
+    .sort((a, b) => a[1].title.localeCompare(b[1].title));
+  $("hidden-title").textContent = `Hidden channels${hidden.length ? ` (${hidden.length})` : ""} for ${profiles.me.name}`;
+  $("hidden-empty").hidden = hidden.length > 0;
+  els.hlist.replaceChildren(...hidden.map(([id, h]) => el("li", {},
+    el("i", { class: "dot " + h.provider }),
+    el("span", { class: "hl-title" }, h.title, el("small", {}, names[h.provider] || h.provider)),
+    el("button", { type: "button", "data-unhide": id, "aria-label": `Show ${h.title} again` }, "Show"))));
+}
+
+// Chips to hide whole providers and genres. Pressed means hidden.
+function renderGroups() {
+  const me = profiles.me;
+  const genres = [...genreOrder.keys()];
+  const chip = (attr, value, label, hidden, dot) => el("button", { type: "button", [attr]: value, "aria-pressed": String(hidden) },
+    dot ? el("i", { class: "dot " + value }) : null, label);
+  els.groups.replaceChildren(
+    el("p", { class: "group-label" }, "Providers"),
+    el("div", { class: "chips" }, ...providerList.map((p) => chip("data-hide-provider", p.id, p.name, me.hiddenProviders.includes(p.id), true))),
+    el("p", { class: "group-label" }, "Genres (live channels)"),
+    el("div", { class: "chips" }, ...genres.map((g) => chip("data-hide-genre", g, g, me.hiddenGenres.includes(g)))));
+}
+
+function openSheet() {
+  renderSheet();
+  els.sheet.showModal();
+}
+
+// Profile changes redraw the guide (or results) for whoever is watching now.
+function profileChanged() {
+  profiles.save();
+  renderProfileBtn();
+  renderProviders();
+  renderSheet();
+  view = null; // a new person's list starts at the top
+  schedule(0);
+}
+
+function askName(title, current = "") {
+  const name = (prompt(title, current) || "").trim().slice(0, 24);
+  return name || null;
+}
+
+function initProfiles() {
+  profiles.load();
+  profiles.save();
+  renderProfileBtn();
+
+  els.profileBtn.addEventListener("click", openSheet);
+  $("profiles-close").addEventListener("click", () => els.sheet.close());
+  // A tap on the dimmed backdrop closes the sheet.
+  els.sheet.addEventListener("click", (e) => { if (e.target === els.sheet) els.sheet.close(); });
+
+  els.plist.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-profile]");
+    if (!b || b.dataset.profile === profiles.current) return;
+    profiles.current = b.dataset.profile;
+    setEditing(false);
+    profileChanged();
+    els.sheet.close();
+  });
+  $("p-add").addEventListener("click", () => {
+    const name = askName("Name for the new profile");
+    if (!name) return;
+    const p = profiles.make(name);
+    profiles.list.push(p);
+    profiles.current = p.id;
+    profileChanged();
+  });
+  $("p-rename").addEventListener("click", () => {
+    const name = askName("Rename profile", profiles.me.name);
+    if (!name) return;
+    profiles.me.name = name;
+    profiles.save();
+    renderProfileBtn();
+    renderSheet();
+  });
+  $("p-delete").addEventListener("click", () => {
+    if (profiles.list.length < 2) return;
+    if (!confirm(`Delete the profile “${profiles.me.name}” and its hidden channels?`)) return;
+    profiles.list = profiles.list.filter((p) => p.id !== profiles.current);
+    profiles.current = profiles.list[0].id;
+    profileChanged();
+  });
+  els.groups.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.hideProvider) profiles.toggle("hiddenProviders", b.dataset.hideProvider);
+    else if (b.dataset.hideGenre) profiles.toggle("hiddenGenres", b.dataset.hideGenre);
+    else return;
+    profileChanged();
+  });
+  els.hlist.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-unhide]");
+    if (!b) return;
+    profiles.unhide(b.dataset.unhide);
+    profileChanged();
+  });
+
+  els.edit.addEventListener("click", () => setEditing(!document.body.classList.contains("editing")));
+  els.results.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-hide]");
+    if (b) { e.stopPropagation(); hideChannel(b.dataset.hide); }
+  }, true);
+  $("toast-undo").addEventListener("click", () => {
+    const undo = toastUndo;
+    els.toast.hidden = true;
+    toastUndo = null;
+    if (undo) undo();
+  });
 }
 
 function init() {
+  initProfiles();
   state.kind = store.get("kind") || "all";
   state.provider = store.get("provider") || "all";
+  state.genre = store.get("genre") || "all";
   state.q = new URL(location.href).searchParams.get("q") || "";
   els.q.value = state.q;
   setPressed(document.querySelector(".kinds"), "kind", state.kind);
@@ -374,6 +688,15 @@ function init() {
     store.set("provider", state.provider);
     setPressed(els.providers, "provider", state.provider);
     schedule(0);
+  });
+
+  els.genres.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    state.genre = b.dataset.genre;
+    store.set("genre", state.genre);
+    setPressed(els.genres, "genre", state.genre);
+    renderGuide();
   });
 
   loadProviders().then(() => update());
