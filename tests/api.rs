@@ -137,6 +137,45 @@ impl Provider for ManyLive {
     }
 }
 
+/// Catalog and search both return the same live channel, like Roku, under
+/// slightly different names.
+struct Both;
+#[async_trait]
+impl Provider for Both {
+    fn id(&self) -> &'static str {
+        "roku"
+    }
+    fn name(&self) -> &'static str {
+        "The Roku Channel"
+    }
+    fn has_catalog(&self) -> bool {
+        true
+    }
+    async fn catalog(&self, _: &Client) -> Result<Vec<Item>> {
+        let mut it = Item::new(
+            "roku",
+            "abc",
+            Kind::Live,
+            "News 24 Live",
+            "https://app.roku.com/watch/abc".into(),
+        );
+        it.channel_number = Some(103);
+        Ok(vec![it])
+    }
+    fn has_search(&self) -> bool {
+        true
+    }
+    async fn search(&self, _: &Client, _: &str) -> Result<Vec<Item>> {
+        Ok(vec![Item::new(
+            "roku",
+            "abc",
+            Kind::Live,
+            "News 24",
+            "https://app.roku.com/watch/abc".into(),
+        )])
+    }
+}
+
 async fn start() -> String {
     start_with(vec![
         Arc::new(CatalogFake),
@@ -238,6 +277,18 @@ async fn live_guide_includes_every_provider() {
         3,
         "a cap still leaves room for providers listed later"
     );
+}
+
+#[tokio::test]
+async fn a_channel_found_both_ways_shows_once_with_its_number() {
+    let base = start_with(vec![Arc::new(Both)]).await;
+    // The search copy's title is an exact match, so it would outrank the
+    // downloaded copy if both were kept.
+    let (_, v) = get(&base, "/api/search?q=news%2024").await;
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(items.len(), 1, "{v}");
+    assert_eq!(items[0]["title"], "News 24 Live", "the downloaded copy wins");
+    assert_eq!(items[0]["channel_number"], 103);
 }
 
 #[tokio::test]

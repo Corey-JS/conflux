@@ -210,6 +210,42 @@ fn roku_search_results() {
 }
 
 #[test]
+fn roku_live_channels_from_mirror() {
+    let mirror = fixture("roku_mirror.json");
+    let items = roku::parse_channels(&mirror);
+    let mut titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+    titles.sort();
+    assert_eq!(
+        titles,
+        vec!["LiveNOW from FOX", "Real America's Voice en Español", "The Masked Singer"],
+        "the bad id is dropped"
+    );
+    let fox = items.iter().find(|i| i.title == "LiveNOW from FOX").unwrap();
+    assert_eq!(fox.id, "roku:f9c0d48b540a55dcb98b04d2cc8abf25");
+    assert_eq!(fox.kind, Kind::Live);
+    assert_eq!(
+        fox.watch_url,
+        "https://app.roku.com/watch/f9c0d48b540a55dcb98b04d2cc8abf25",
+        "same link as the channel's search result"
+    );
+    assert_eq!(fox.channel_number, Some(103));
+    assert_eq!(fox.genres, vec!["News"]);
+    assert!(fox.description.as_deref().unwrap().starts_with("Always LIVE."));
+    assert!(fox.image.as_deref().unwrap().starts_with("https://images.sr.roku.com/"));
+
+    let map = roku::parse_programs(&mirror);
+    let slots: Vec<(u64, u64)> = map["roku:f9c0d48b540a55dcb98b04d2cc8abf25"]
+        .iter()
+        .map(|p| (p.start, p.stop))
+        .collect();
+    assert_eq!(
+        slots,
+        vec![(1795154400, 1795168800), (1795168800, 1795183200), (1795183200, 1795197600)]
+    );
+    assert_eq!(map.len(), 2, "no schedule for a channel without programs");
+}
+
+#[test]
 fn samsung_channels() {
     let items = samsung::parse_channels(&fixture("samsung_channels.json"), "us");
     assert_eq!(items.len(), 2);

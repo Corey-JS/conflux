@@ -409,11 +409,15 @@ impl Store {
                 }
             }
         }
+        // A provider with both (Roku's live channels) can return the same
+        // item twice; the downloaded copy has the channel number and schedule.
+        let from_catalog: std::collections::HashSet<String> =
+            scored.iter().map(|(_, i)| i.id.clone()).collect();
         for (p, res) in remote.iter().zip(remote_results) {
             match res {
                 Ok(items) => {
                     for (pos, item) in items.into_iter().enumerate() {
-                        if !filter.allows(&item) {
+                        if !filter.allows(&item) || from_catalog.contains(&item.id) {
                             continue;
                         }
                         let ix = Indexed::new(item);

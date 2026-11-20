@@ -1,4 +1,10 @@
-//! The Roku Channel: searched per query.
+//! The Roku Channel: live channels downloaded whole, everything searched per
+//! query.
+//!
+//! Search only finds live channels that match a query, so the full lineup
+//! and its schedules come from the channel list the open-source i.mjh.nz
+//! project mirrors from The Roku Channel (see `mjh`). Its ids are Roku's own,
+//! so a channel found both ways links to the same page and shows up once.
 //!
 //! The Roku Channel's web app gets a CSRF token, then searches with it. Its
 //! response shape is not documented, so the parser walks the JSON and picks
@@ -7,7 +13,7 @@
 //! Roku's search covers every channel on Roku, paid ones included, so each
 //! result is kept only if The Roku Channel itself offers it free.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -15,9 +21,9 @@ use reqwest::Client;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use super::json::{arr, at, str_of, strings, year_of};
-use super::{Provider, get_json};
-use crate::model::{Item, Kind, clean, is_web_url};
+use super::json::{arr, at, str_of, strings, u32_of, year_of};
+use super::{Provider, get_json, mjh};
+use crate::model::{Item, Kind, Program, clean, is_web_url};
 
 /// The web app moved here from therokuchannel.roku.com, which now answers
 /// with a 301. A redirected POST arrives as a GET with no body, so the old
@@ -29,8 +35,11 @@ const BASE: &str = "https://app.roku.com";
 /// "shudder" and so on.
 const FREE_PROVIDER: &str = "rokuavod";
 
+const MIRROR_URL: &str = "https://i.mjh.nz/Roku/.channels.json.gz";
+
 pub struct Roku {
     csrf: Mutex<Option<String>>,
+    schedules: mjh::Schedules,
 }
 
 impl Default for Roku {
@@ -43,6 +52,7 @@ impl Roku {
     pub fn new() -> Roku {
         Roku {
             csrf: Mutex::new(None),
+            schedules: mjh::Schedules::default(),
         }
     }
 
@@ -71,6 +81,30 @@ impl Provider for Roku {
     fn name(&self) -> &'static str {
         "The Roku Channel"
     }
+    fn has_catalog(&self) -> bool {
+        true
+    }
+    async fn catalog(&self, http: &Client) -> Result<Vec<Item>> {
+        let v = mjh::fetch(http, MIRROR_URL)
+            .await
+            .context("Roku channel list (i.mjh.nz)")?;
+        self.schedules.set(parse_programs(&v)).await;
+        Ok(parse_channels(&v))
+    }
+    fn has_guide(&self) -> bool {
+        true
+    }
+    async fn guide(&self, http: &Client, _channels: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
+        if let Some(map) = self.schedules.recent().await {
+            return Ok(map);
+        }
+        let v = mjh::fetch(http, MIRROR_URL)
+            .await
+            .context("Roku schedules (i.mjh.nz)")?;
+        let map = parse_programs(&v);
+        self.schedules.set(map.clone()).await;
+        Ok(map)
+    }
     fn has_search(&self) -> bool {
         true
     }
@@ -93,6 +127,39 @@ impl Provider for Roku {
         }
         Err(last_err.unwrap()).context("Roku search")
     }
+}
+
+/// The mirror's live lineup:
+/// `{ channels: { "<id>": { name, description, chno, logo, groups, programs } } }`.
+pub fn parse_channels(v: &Value) -> Vec<Item> {
+    mjh::channels(v, "us")
+        .filter(|(id, _)| valid_id(id))
+        .filter_map(|(id, c)| {
+            let name = str_of(c, &["name"])?;
+            let mut item = Item::new("roku", id, Kind::Live, &name, format!("{BASE}/watch/{id}"));
+            item.description = clean(str_of(c, &["description"]));
+            item.channel_number = u32_of(c, &["chno"]);
+            item.image = str_of(c, &["logo"]).filter(|u| is_web_url(u));
+            item.genres = strings(c.get("groups")).into_iter().take(3).collect();
+            Some(item)
+        })
+        .collect()
+}
+
+/// Schedules keyed by `Item::id` (see `mjh::programs`).
+pub fn parse_programs(v: &Value) -> HashMap<String, Vec<Program>> {
+    mjh::channels(v, "us")
+        .filter(|(id, _)| valid_id(id))
+        .filter_map(|(id, c)| {
+            let programs = mjh::programs(c);
+            (!programs.is_empty()).then(|| (format!("roku:{id}"), programs))
+        })
+        .collect()
+}
+
+/// Ids go into URLs, so only plain ones are accepted.
+fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Walk any JSON and collect titled content objects.
@@ -143,11 +210,7 @@ fn content_item(o: &Value) -> Option<Item> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .or_else(|| str_of(o, &["id", "contentId"]))?;
-    if id.is_empty()
-        || !id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
+    if !valid_id(&id) {
         return None;
     }
     let url = if kind == Kind::Live {
