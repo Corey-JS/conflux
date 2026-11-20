@@ -1,7 +1,7 @@
 //! Each provider's parser against a sample of its responses.
 
 use conflux::model::{Kind, Program};
-use conflux::providers::{plex, pluto, roku, samsung, tubi};
+use conflux::providers::{plex, pluto, roku, samsung, tubi, xumo};
 use serde_json::Value;
 
 fn text_fixture(name: &str) -> String {
@@ -342,8 +342,13 @@ fn roku_show_art_from_the_mirrors_guide() {
 fn samsung_channels() {
     let items = samsung::parse_channels(&fixture("samsung_channels.json"), "us");
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0].title, "ABC News Live", "sorted by channel number");
-    assert_eq!(items[1].genres, vec!["Entertainment"]);
+    assert_eq!(items[0].title, "Las Vegas", "sorted by channel number");
+    assert_eq!(items[0].channel_number, Some(1000));
+    assert_eq!(items[0].genres, vec!["Action & Drama"]);
+    assert!(items[0].image.as_deref().unwrap().starts_with("https://tvpnlogopus.samsungcloud.tv/"));
+    assert!(items[0].description.is_some());
+    assert_eq!(items[1].title, "Christmas Vibes");
+    assert_eq!(samsung::parse_channels(&fixture("samsung_channels.json"), "gb").len(), 1);
     assert!(samsung::parse_channels(&fixture("samsung_channels.json"), "zz").is_empty());
 }
 
@@ -365,4 +370,39 @@ fn pluto_timelines_become_sorted_programs() {
         "art is requested at phone size"
     );
     assert_eq!(ps[1].image, None);
+}
+
+#[test]
+fn xumo_live_channels() {
+    let items = xumo::parse_channels(&fixture("xumo_channels.json"));
+    // The on-demand "page" in the list isn't a channel.
+    assert_eq!(items.len(), 3);
+    assert!(items.iter().all(|i| i.kind == Kind::Live));
+    let news = &items[0];
+    assert_eq!(news.id, "xumo:99991247");
+    assert_eq!(news.title, "NBC News NOW");
+    assert_eq!(news.channel_number, Some(1));
+    assert_eq!(news.genres, vec!["News"]);
+    assert_eq!(news.watch_url, "https://play.xumo.com/networks/nbc-news-now/99991247");
+    assert_eq!(
+        news.image.as_deref(),
+        Some("https://image.xumo.com/v1/channels/channel/99991247/168x168.png?type=color_onBlack")
+    );
+    let reelz = items.iter().find(|i| i.title.contains('&')).unwrap();
+    assert!(reelz.watch_url.contains("-and-"), "{}", reelz.watch_url);
+}
+
+#[test]
+fn xumo_schedule() {
+    let g = xumo::parse_epg(&fixture("xumo_epg.json"));
+    let progs = &g["xumo:99991247"];
+    assert_eq!(progs.len(), 3);
+    assert_eq!(progs[0].title, "Top Story With Tom Llamas");
+    assert_eq!((progs[0].start, progs[0].stop), (1_795_132_800, 1_795_136_400));
+    assert_eq!(
+        progs[0].description.as_deref(),
+        Some("Reporting of breaking news and developing stories in real time.")
+    );
+    // "medium" is preferred over "tiny".
+    assert!(progs[1].description.as_deref().unwrap().contains("deep dives"));
 }

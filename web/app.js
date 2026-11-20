@@ -123,6 +123,8 @@ function el(tag, attrs = {}, ...children) {
   for (const [k, v] of Object.entries(attrs)) {
     if (v == null || v === false) continue;
     if (k === "class") n.className = v;
+    // Through the CSSOM: the Content-Security-Policy blocks style attributes.
+    else if (k === "style") n.style.cssText = v;
     else n.setAttribute(k, v === true ? "" : v);
   }
   for (const c of children) if (c != null) n.append(c);

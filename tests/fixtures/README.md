@@ -13,6 +13,16 @@ The exceptions, trimmed from real responses in Nov 2026:
   (XMLTV), with their programmes for one afternoon.
 - `roku_mirror.json`: the i.mjh.nz Roku channel file, plus one made-up
   entry with a bad id. The mirror's request headers are left out.
+- `samsung_channels.json`: two US channels and one UK channel from the
+  i.mjh.nz Samsung TV Plus file, schedules cut to two slots. Its request
+  headers are left out.
+- `xumo_channels.json` and `xumo_epg.json`: Xumo Play's channel list (three
+  channels plus one on-demand "page" that isn't a channel) and one channel's
+  slice of a guide block, with the assets it names.
+
+Still hand-written: the Pluto samples and `tubi_search.json`. Tubi's old
+search endpoint answers 401 for everyone (Nov 2026), so there's no real
+response left to capture; its sample is kept in case the endpoint returns.
 
 Use `conflux check` against the real services to confirm the shapes still
 hold, and replace a sample with a real (trimmed) response when a parser

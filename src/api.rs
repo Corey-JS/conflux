@@ -18,6 +18,12 @@ use crate::catalog::{Filter, Store};
 use crate::model::Kind;
 
 const MAX_QUERY_LEN: usize = 100;
+
+/// Only this server's own scripts, styles and API; images from anywhere on
+/// https (provider logos and art). The app has no inline scripts or styles.
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
+img-src 'self' https: data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; \
+object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const MAX_LIVE: usize = 2000;
 
 #[derive(Deserialize, Default)]
@@ -164,6 +170,10 @@ pub fn router(store: Arc<Store>, web_dir: PathBuf) -> Router {
         .layer(SetResponseHeaderLayer::if_not_present(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(CSP),
         ))
         .layer(SetResponseHeaderLayer::if_not_present(
             header::REFERRER_POLICY,

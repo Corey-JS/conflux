@@ -28,7 +28,39 @@ ssh -i ~/.ssh/conflux_oracle ubuntu@132.145.136.144 \
 
 The script rebuilds, reinstalls and restarts Conflux, then checks that it's
 up. A rebuild takes a minute or two on the A1 VM. Installed iPhone apps pick
-up a new version after being closed and reopened once or twice.
+up a new version after being closed and reopened once or twice (each build
+gets its own service-worker cache name, so they always do).
+
+The script stops if `git pull` fails, instead of rebuilding the old code.
+`SKIP_PULL=1 bash deploy/install.sh` deploys whatever is checked out.
+
+If the new build doesn't answer `/healthz` within 30 seconds, the script
+puts the previous build back on its own. To undo a deploy that came up but
+misbehaves:
+
+```
+ssh -i ~/.ssh/conflux_oracle ubuntu@132.145.136.144 \
+  'cd ~/conflux && bash deploy/install.sh --rollback'
+```
+
+That keeps one previous build (`/opt/conflux/conflux.prev` and `web.prev`).
+
+## Alerts
+
+`.github/workflows/health.yml` runs `deploy/health_check.py` against the
+live server every hour. It fails, and GitHub emails you, when the server is
+down or a provider's catalog is empty, more than 3 hours old, or has no
+schedules. It reads only Conflux's own `/api/providers`, so it costs the
+providers nothing.
+
+- Make sure GitHub emails you about failed runs: **GitHub > Settings >
+  Notifications > Actions**, "Send notifications for failed workflows only".
+- To check a different address, set a repository variable `CONFLUX_URL`
+  (**Settings > Secrets and variables > Actions > Variables**).
+- Run it now from the **Actions** tab (**Health > Run workflow**), or
+  locally: `python3 deploy/health_check.py`.
+- GitHub pauses scheduled workflows after 60 days without a commit. It
+  emails a warning first; turn it back on from the Actions tab.
 
 ## Setting up a new server
 
@@ -88,7 +120,8 @@ personal access token works as the password, or install `gh` and run
 `gh repo clone Corey-JS/conflux`.
 
 To use your own domain instead of sslip.io, point an A record at the VM's IP
-and run `bash deploy/install.sh tv.yourdomain.com`.
+and run `bash deploy/install.sh tv.yourdomain.com`. The script remembers it
+(`/opt/conflux/DOMAIN`), so later runs without a domain keep using it.
 
 The script installs build tools and Rust, adds 2 GB of swap if the VM has
 none, builds Conflux, installs it as a systemd service, installs Caddy for
@@ -120,7 +153,7 @@ Put any of these in `/etc/conflux.env` and run `sudo systemctl restart conflux`:
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `CONFLUX_PROVIDERS` | `pluto,plex,roku` | Which providers to use. Add `samsung` to turn Samsung TV Plus on. `tubi` can be added too, but its search has answered 401 since Nov 2026. |
+| `CONFLUX_PROVIDERS` | `pluto,plex,roku,xumo` | Which providers to use. Add `samsung` to turn Samsung TV Plus on. `tubi` can be added too, but its search has answered 401 since Nov 2026. |
 | `CONFLUX_REFRESH_MINUTES` | `60` | How often to re-download the channel and catalog lists. |
 | `CONFLUX_PLEX_REGION` | `us` | Plex region code: `us`, `ca`, `gb`, `au`, `nz`, `mx`, `es` or `fr`. |
 | `CONFLUX_SAMSUNG_REGION` | `us` | Samsung TV Plus region code. |

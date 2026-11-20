@@ -21,6 +21,7 @@ pub mod samsung;
 pub mod showart;
 pub mod tubi;
 pub mod xmltv;
+pub mod xumo;
 
 #[async_trait]
 pub trait Provider: Send + Sync {
@@ -63,7 +64,7 @@ pub trait Provider: Send + Sync {
     }
 }
 
-pub const ALL_IDS: &[&str] = &["pluto", "plex", "tubi", "roku", "samsung"];
+pub const ALL_IDS: &[&str] = &["pluto", "plex", "tubi", "roku", "xumo", "samsung"];
 
 /// Off unless asked for:
 /// - Tubi: its old search endpoint answers 401 (Nov 2026), and the service
@@ -71,7 +72,7 @@ pub const ALL_IDS: &[&str] = &["pluto", "plex", "tubi", "roku", "samsung"];
 ///   signs them, so every search would just report Tubi as unavailable.
 /// - Samsung TV Plus: its website reportedly closed and it has no iPhone app,
 ///   so there is nowhere on a phone to send a tap.
-pub const DEFAULT_IDS: &[&str] = &["pluto", "plex", "roku"];
+pub const DEFAULT_IDS: &[&str] = &["pluto", "plex", "roku", "xumo"];
 
 pub fn build(ids: &[String]) -> Vec<Arc<dyn Provider>> {
     let mut out: Vec<Arc<dyn Provider>> = Vec::new();
@@ -81,6 +82,7 @@ pub fn build(ids: &[String]) -> Vec<Arc<dyn Provider>> {
             "plex" => out.push(Arc::new(plex::Plex::new())),
             "tubi" => out.push(Arc::new(tubi::Tubi)),
             "roku" => out.push(Arc::new(roku::Roku::new())),
+            "xumo" => out.push(Arc::new(xumo::Xumo)),
             "samsung" => out.push(Arc::new(samsung::Samsung::from_env())),
             other => tracing::warn!("unknown provider '{other}' ignored"),
         }

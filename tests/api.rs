@@ -368,6 +368,7 @@ async fn provider_status_reports_errors() {
     let ps = v["providers"].as_array().unwrap();
     assert_eq!(ps.len(), 3);
     assert_eq!(ps[0]["catalog_items"], 3);
+    assert_eq!(ps[0]["has_guide"], false);
     assert_eq!(ps[1]["mode"], "search");
     assert!(ps[1]["search_ok_at"].is_u64());
     assert!(ps[2]["catalog_error"].as_str().unwrap().contains("403"));
@@ -380,6 +381,9 @@ async fn serves_the_app() {
     let c = Client::builder().no_proxy().build().unwrap();
     let r = c.get(format!("{base}/")).send().await.unwrap();
     assert_eq!(r.status(), 200);
+    let csp = r.headers()["content-security-policy"].to_str().unwrap().to_string();
+    assert!(csp.contains("script-src 'self'") && csp.contains("frame-ancestors 'none'"), "{csp}");
+    assert!(!csp.contains("unsafe-inline"), "{csp}");
     assert!(r.text().await.unwrap().contains("Conflux"));
     let r = c
         .get(format!("{base}/manifest.webmanifest"))

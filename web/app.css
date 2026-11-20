@@ -10,6 +10,7 @@
   --tubi: #ff7a3d;
   --plex: #e5a00d;
   --roku: #a77bfa;
+  --xumo: #3fd0f5;
   --samsung: #5b8cff;
   --radius: 14px;
   --gutter: 16px;
@@ -113,6 +114,7 @@ body {
 .dot.tubi { background: var(--tubi); }
 .dot.plex { background: var(--plex); }
 .dot.roku { background: var(--roku); }
+.dot.xumo { background: var(--xumo); }
 .dot.samsung { background: var(--samsung); }
 
 main {

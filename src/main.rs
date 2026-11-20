@@ -104,7 +104,8 @@ async fn check(store: &Store, q: &str) -> i32 {
             .collect();
         let catalog_bad = s.mode.contains("catalog") && s.catalog_items == 0;
         let search_bad = s.mode.contains("search") && s.search_error.is_some();
-        let ok = !catalog_bad && !search_bad;
+        let guide_bad = s.has_guide && s.guide_channels == 0;
+        let ok = !catalog_bad && !search_bad && !guide_bad;
         if !ok {
             failures += 1;
         }
@@ -118,6 +119,12 @@ async fn check(store: &Store, q: &str) -> i32 {
             println!("     catalog: {} items", s.catalog_items);
             if let Some(e) = &s.catalog_error {
                 println!("     catalog error: {e}");
+            }
+        }
+        if s.has_guide {
+            println!("     schedules: {} channels", s.guide_channels);
+            if let Some(e) = &s.guide_error {
+                println!("     schedule error: {e}");
             }
         }
         if let Some(e) = &s.search_error {

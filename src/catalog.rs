@@ -49,6 +49,8 @@ pub struct Status {
     pub search_ok_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search_error: Option<String>,
+    /// True if this provider supplies schedules for its live channels.
+    pub has_guide: bool,
     /// Live channels that currently have a schedule.
     #[serde(skip_serializing_if = "is_zero")]
     pub guide_channels: usize,
@@ -169,6 +171,7 @@ impl Store {
                     id: p.id().into(),
                     name: p.name().into(),
                     mode: mode.into(),
+                    has_guide: p.has_guide(),
                     ..Default::default()
                 },
             );

@@ -1,0 +1,112 @@
+{
+ "channel": {
+  "title": "Channel list",
+  "link": "http://www.xumo.com",
+  "description": "Channel list",
+  "item": [
+   {
+    "title": "Dateline 24/7",
+    "description": "Stream Dateline 24 hours a day, 7 days a week on the Dateline 24/7 channel. Discover top true crime picks from The True Crime Original. All Dateline, all the time.",
+    "guid": {
+     "value": "99991626",
+     "isPermaLink": false
+    },
+    "number": 702,
+    "callsign": "XDATE-CMS",
+    "genre": [
+     {
+      "value": "Crime TV",
+      "genreId": 760
+     }
+    ],
+    "properties": {
+     "amazon_tif_rating": "US_TV_14",
+     "hybrid_type": "regional",
+     "brand_color": "rgba(0,12,22,1)",
+     "has_vod": "true",
+     "is_amazon_tif_channel": "true",
+     "alt_brand_color": "rgba(0,0,0,1)",
+     "is_live": "true",
+     "is_simulcast": "true"
+    }
+   },
+   {
+    "title": "NBC News NOW",
+    "description": "NBC News NOW is a streaming network from NBC News. NOW features deep reporting, thoughtful storytelling, and live, breaking news from the global resources of NBC News.",
+    "guid": {
+     "value": "99991247",
+     "isPermaLink": false
+    },
+    "number": 1,
+    "callsign": "XNBCN-CMS",
+    "genre": [
+     {
+      "value": "News",
+      "genreId": 13
+     }
+    ],
+    "properties": {
+     "amazon_tif_rating": "US_TV_PG",
+     "hybrid_type": "regional",
+     "brand_color": "rgba(47,131,177,1)",
+     "has_vod": "false",
+     "is_amazon_tif_channel": "true",
+     "alt_brand_color": "rgba(0,0,0,1)",
+     "is_live": "true",
+     "is_simulcast": "true"
+    }
+   },
+   {
+    "title": "REELZ Famous & Infamous",
+    "description": "REELZ Famous & Infamous is an entertainment network telling in-depth stories for the fans of real celebrity and real crime. Our premium documentaries make real life — really entertaining.",
+    "guid": {
+     "value": "99991368",
+     "isPermaLink": false
+    },
+    "number": 710,
+    "callsign": "XREEL-CMS",
+    "genre": [
+     {
+      "value": "Crime TV",
+      "genreId": 760
+     }
+    ],
+    "properties": {
+     "hybrid_type": "regional",
+     "alt_brand_color": "rgba(0,0,0,1)",
+     "is_live": "true",
+     "brand_color": "rgba(51,3,6,1)",
+     "has_vod": "true",
+     "is_simulcast": "true"
+    }
+   },
+   {
+    "title": "Movies Page - DRM",
+    "description": "Movies Page DRM",
+    "guid": {
+     "value": "99991334",
+     "isPermaLink": false
+    },
+    "number": 250,
+    "callsign": "XFRMVDRM-CMS",
+    "genre": [
+     {
+      "value": "Movies",
+      "genreId": 284
+     }
+    ],
+    "properties": {
+     "is_google_movie_channel": "true",
+     "hybrid_type": "regional",
+     "brand_color": "rgba(17,49,61,1)",
+     "has_vod": "true",
+     "alt_brand_color": "rgba(0,0,0,1)",
+     "is_live": "false",
+     "is_xumo_movie_channel": "true",
+     "is_roku_movie_channel": "true"
+    }
+   }
+  ]
+ },
+ "version": 2.0
+}

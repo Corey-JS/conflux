@@ -11,7 +11,7 @@ for iPhone Safari.
 ## How it works
 
 ```
-iPhone (PWA)  ──/api/search──▶  Rust server  ──▶  Pluto TV, Plex, Roku Channel
+iPhone (PWA)  ──/api/search──▶  Rust server  ──▶  Pluto TV, Plex, Roku Channel, Xumo Play
    tap result ──────────────────────────────────▶  provider's own watch page / app
 ```
 
@@ -52,12 +52,13 @@ working, and `/api/providers` shows which one failed and why.
 | Plex | Live channels + schedules with show art | Channel list and schedules mirrored by the open-source i.mjh.nz project; each channel's link and genre from Plex's public live TV page; show art, episode names and ratings from epgshare01's free Plex guide (XMLTV, matched by channel name and time). No Plex token. | Medium. Since Nov 2026 plex.tv gives signed-out guest tokens only to Plex's own apps, so on-demand search is gone. `CONFLUX_PLEX_REGION` picks the region (default `us`). |
 | Tubi | On-demand search (also live channels if they match) | Web app's old `/oz/search` endpoint | **Off by default (Nov 2026).** The endpoint now answers 401. Tubi's web app moved to a search service whose signed-out token needs a request signature only Tubi's own client is meant to produce. The module and its parser are kept; add `tubi` to `CONFLUX_PROVIDERS` to try it. |
 | The Roku Channel | Live channels + schedules with show art; on-demand and live search | Live lineup and schedules mirrored by the open-source i.mjh.nz project; show art, episode names and descriptions from the same project's Roku guide file (XMLTV, matched by Roku's channel id). Search: web app's CSRF token, then search on `app.roku.com`; response read leniently; only items Roku marks free (`rokuavod`) are kept, because its search also returns Paramount+ and other paid channels | Medium. Checked against the live service in Nov 2026. US only. |
+| Xumo Play | Live channels + schedules | Channel list and guide from the same `valencia-app-mds.xumo.com` endpoints play.xumo.com's web app loads; no token. The guide comes in pages of 50 channels per six-hour block, so a refresh is about ten small requests. Taps go to `play.xumo.com/networks/<slug>/<id>` (Xumo finds the page by id) or the Xumo Play app. | Medium. Checked against the live service in Nov 2026. US only. |
 | Samsung TV Plus | Live channels | Channel list mirrored by the open-source i.mjh.nz project | **Off by default.** Samsung's website reportedly closed and there's no iPhone app, so a tap has nowhere to go. |
 
 The parsers are tested against samples of each response shape
-(`tests/fixtures/`). Pluto, Plex and Roku were checked against the real
+(`tests/fixtures/`). Pluto, Plex, Roku and Xumo were checked against the real
 services in Nov 2026 (the Plex and Roku samples are trimmed from real
-responses); the rest are still hand-written. Run `conflux check` on the server to test the real ones.
+responses); Xumo and Samsung samples are trimmed from real responses too; the rest are still hand-written. Run `conflux check` on the server to test the real ones.
 
 ## Run it locally
 
@@ -79,7 +80,7 @@ On a phone the app must be served over HTTPS to install; see
 | `GET /api/search?q=star+trek&kind=live\|movie\|series&provider=pluto&limit=60` | `{ query, items: [Item], unavailable: [provider names] }` |
 | `GET /api/live?provider=pluto&limit=2000` | `{ items: [Item + programs], now }`: whole lineups by default, grouped by provider, each in channel order. A lower `limit` gives every provider a fair share instead of cutting off the later ones. |
 | `GET /api/art/<key>` | A 168×240 JPEG of a show's art, for providers whose art is full size (Plex, Roku). Keys come from `/api/live`; only images in the current guide can be fetched. Made ahead of time for what's on now and next, kept on disk (`CONFLUX_ART_DIR`), and cached by browsers for a week. |
-| `GET /api/providers` | Each provider's mode, item count, last success and last error |
+| `GET /api/providers` | Each provider's mode, item count, schedules, last success and last error |
 | `GET /healthz` | `ok` |
 
 An `Item` is `{ id, provider, kind, title, description?, image?, genres, year?, channel_number?, watch_url }`.
@@ -96,7 +97,7 @@ src/
   model.rs           the shared Item type
   providers/         one file per provider
 web/                 the PWA (plain HTML, CSS, JS, service worker)
-deploy/              systemd unit, Caddy config, install script
+deploy/              systemd unit, Caddy config, install script, health check
 tests/               API tests with fake providers; parser tests with fixtures
 ```
 

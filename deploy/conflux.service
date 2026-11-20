@@ -14,7 +14,7 @@ Environment=RUST_LOG=conflux=info,warn
 # test. Handing blocks over 128 KB back to the system and keeping two memory
 # pools holds it near 450 MB at the same speed.
 Environment=GLIBC_TUNABLES=glibc.malloc.mmap_threshold=131072:glibc.malloc.arena_max=2
-# Optional: CONFLUX_PROVIDERS=pluto,plex,tubi,roku,samsung and CONFLUX_REFRESH_MINUTES=60
+# Optional: CONFLUX_PROVIDERS=pluto,plex,tubi,roku,xumo,samsung and CONFLUX_REFRESH_MINUTES=60
 EnvironmentFile=-/etc/conflux.env
 Restart=always
 RestartSec=5

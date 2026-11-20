@@ -1,4 +1,69 @@
-{"regions":{"us":{"name":"United States","channels":{
-  "USBC4400003OU":{"chno":1052,"name":"Bob Ross","group":"Entertainment","logo":"https://tvpnlogopus.samsungcloud.tv/bob.png","description":"Joy of painting."},
-  "USBD1200001A":{"chno":1001,"name":"ABC News Live","group":"News","logo":"https://tvpnlogopus.samsungcloud.tv/abc.png"}
-}},"gb":{"channels":{}}}}
+{
+ "slug": "stvp-{id}",
+ "regions": {
+  "us": {
+   "name": "United States",
+   "logo": "https://flagcdn.com/h240/us.png",
+   "channels": {
+    "US3600006IN": {
+     "name": "Christmas Vibes",
+     "chno": 4592,
+     "logo": "https://tvpnlogopus.samsungcloud.tv/platform/image/sourcelogo/vc/00/02/34/US3600006IN_20261102T091154SQUARE.png",
+     "description": "Enjoy the magic of the season with charming scenes of adorable puppies, snow-covered villages, and enchanted winter landscapes.",
+     "group": "Ambiance",
+     "programs": [
+      [
+       1795200177,
+       "Snowy Christmas Town With Holiday Music"
+      ],
+      [
+       1795204257,
+       "Lofi Christmas Aesthetic"
+      ]
+     ]
+    },
+    "US180001143": {
+     "name": "Las Vegas",
+     "chno": 1000,
+     "logo": "https://tvpnlogopus.samsungcloud.tv/platform/image/sourcelogo/vc/00/02/34/US180001143_20261116T193858SQUARE.png",
+     "description": "A Las Vegas security team tackles crime, cons and murder in this glamorous, addictive procedural starring Josh Duhamel.",
+     "group": "Action & Drama",
+     "programs": [
+      [
+       1795199940,
+       "Las Vegas"
+      ],
+      [
+       1795202880,
+       "Las Vegas"
+      ]
+     ],
+     "license_url": "https://d54or4x1qhv8g.cloudfront.net/drm/v3/license?drm-type=widevine"
+    }
+   }
+  },
+  "gb": {
+   "name": "United Kingdom",
+   "channels": {
+    "GBBC2300003ZQ": {
+     "name": "Entertainment Hub",
+     "chno": 4001,
+     "logo": "https://tvpnlogopeu.samsungcloud.tv/platform/image/sourcelogo/vc/00/02/34/GBBC2300003ZQ_20260609T043650SQUARE.png",
+     "description": "Enjoy front row entertainment with the latest seasons of American Idol, the most popular seasons of MasterChef Australia and the ultimate fashion classic, Project Runway, all on Entertainment Hub.",
+     "group": "Entertainment",
+     "programs": [
+      [
+       1795202269,
+       "Americas Got Talent"
+      ],
+      [
+       1795208082,
+       "Poldark"
+      ]
+     ],
+     "license_url": "https://d180olzqm6iw12.cloudfront.net/drm/v3/license?service_id=GBBC2300003ZQ&drm-type=widevine"
+    }
+   }
+  }
+ }
+}

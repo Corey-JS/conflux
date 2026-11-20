@@ -1,0 +1,22 @@
+# Hourly check of the live server. A failed run is the alert: GitHub emails
+# the repo owner when a scheduled workflow fails (Settings > Notifications >
+# Actions, "Send notifications for failed workflows only").
+#
+# Note: GitHub turns scheduled workflows off after 60 days without a commit.
+# It emails a warning first; re-enable it from the Actions tab.
+name: Health
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 deploy/health_check.py
+        env:
+          CONFLUX_URL: ${{ vars.CONFLUX_URL }}
