@@ -18,6 +18,7 @@ pub mod pluto;
 pub mod roku;
 pub mod samsung;
 pub mod tubi;
+pub mod xmltv;
 
 #[async_trait]
 pub trait Provider: Send + Sync {

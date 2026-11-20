@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv generator-info-name="epgshare01 (trimmed for tests)">
+  <channel id="plex.tv.CW.Forever.plex">
+    <display-name lang="en">CW Forever</display-name>
+    <icon src="https://image.tmdb.org/t/p/original/8KxOwzN0b2GrrjRI7bwsEhs96lC.jpg" />
+    <icon src="https://image.tmdb.org/t/p/original/8KxOwzN0b2GrrjRI7bwsEhs96lC.jpg" />
+    <url>http://www.plex.tv</url>
+  </channel>
+  <channel id="plex.tv.A&amp;E.Alaska.State.Troopers.plex">
+    <display-name lang="en">A&amp;E Alaska State Troopers</display-name>
+    <icon src="https://dki01q1l7yn3y.cloudfront.net/thumbnails-platform-prod/assets/cs::content::shows/27740-29788/56812679-2-3-poster_v1.jpg" />
+    <icon src="https://dki01q1l7yn3y.cloudfront.net/thumbnails-platform-prod/assets/cs::content::shows/27740-29788/56812679-2-3-poster_v1.jpg" />
+    <url>http://www.plex.tv</url>
+  </channel>
+  <programme start="20261120082100 +0000" stop="20261120091200 +0000" channel="plex.tv.CW.Forever.plex">
+    <title lang="en">Lost Girl</title>
+    <sub-title lang="en">Origin</sub-title>
+    <desc lang="en">Bo is reluctant to comply with her role in a prophecy and challenges fate.</desc>
+    <date>2026</date>
+    <category lang="en">Bingeworthy</category>
+    <icon src="https://images.frequency.com/video/7503911055139904521/solid/rectangle/w1920_h1080/17l5tjcubgb9l1jwrg7npolc4f.png" />
+    <episode-num system="onscreen">S4 E12</episode-num>
+    <rating system="US">
+      <value>TV-14</value>
+    </rating>
+  </programme>
+  <programme start="20261120091200 +0000" stop="20261120100300 +0000" channel="plex.tv.CW.Forever.plex">
+    <title lang="en">Lost Girl</title>
+    <sub-title lang="en">Dark Horse</sub-title>
+    <desc lang="en">Bo will have to make an unthinkable sacrifice if she wants to stop the destruction on her world.</desc>
+    <date>2026</date>
+    <category lang="en">Bingeworthy</category>
+    <icon src="https://images.frequency.com/video/7503911055139904521/solid/rectangle/w1920_h1080/17l5tjcubgb9l1jwrg7npolc4f.png" />
+    <episode-num system="onscreen">S4 E13</episode-num>
+    <rating system="US">
+      <value>TV-14</value>
+    </rating>
+  </programme>
+  <programme start="20261120100300 +0000" stop="20261120105500 +0000" channel="plex.tv.CW.Forever.plex">
+    <title lang="en">Lost Girl</title>
+    <sub-title lang="en">Like Hell: Part 1</sub-title>
+    <desc lang="en">Bo descends to Valhalla to rescue Kenzi.</desc>
+    <date>2026</date>
+    <category lang="en">Bingeworthy</category>
+    <icon src="https://images.frequency.com/video/7503911055139904521/solid/rectangle/w1920_h1080/17l5tjcubgb9l1jwrg7npolc4f.png" />
+    <episode-num system="onscreen">S5 E1</episode-num>
+    <rating system="US">
+      <value>TV-14</value>
+    </rating>
+  </programme>
+  <programme start="20261120105500 +0000" stop="20261120114600 +0000" channel="plex.tv.CW.Forever.plex">
+    <title lang="en">Lost Girl</title>
+    <sub-title lang="en">Like Hell: Part 2</sub-title>
+    <desc lang="en">Now trapped in Tartarus, Bo must trust a mysterious stranger if she's going to save Kenzi.</desc>
+    <date>2026</date>
+    <category lang="en">Bingeworthy</category>
+    <icon src="https://images.frequency.com/video/7503911055139904521/solid/rectangle/w1920_h1080/17l5tjcubgb9l1jwrg7npolc4f.png" />
+    <episode-num system="onscreen">S5 E2</episode-num>
+    <rating system="US">
+      <value>TV-14</value>
+    </rating>
+  </programme>
+  <programme start="20261120084100 +0000" stop="20261120093700 +0000" channel="plex.tv.A&amp;E.Alaska.State.Troopers.plex">
+    <title lang="en">Alaska State Troopers</title>
+    <sub-title lang="en">High-Speed Chase</sub-title>
+    <desc lang="en">Troopers pursue a felon in a high-speed chase.</desc>
+    <date>2026</date>
+    <category lang="en">Crime</category>
+    <icon src="https://dki01q1l7yn3y.cloudfront.net/thumbnails-platform-prod/assets/cs::content::shows/27740-29788/56812679-default_v1.jpg" />
+    <episode-num system="onscreen">S2 E6</episode-num>
+    <rating system="US">
+      <value>TV-14</value>
+    </rating>
+  </programme>
+  <programme start="20261120093700 +0000" stop="20261120103200 +0000" channel="plex.tv.A&amp;E.Alaska.State.Troopers.plex">
+    <title lang="en">Alaska State Troopers</title>
+    <sub-title lang="en">Dead-End Deranged</sub-title>
+    <desc lang="en">Follow the Troopers as they're swept into a high-speed chase with a felon.</desc>
+    <date>2026</date>
+    <category lang="en">Crime</category>
+    <icon src="https://dki01q1l7yn3y.cloudfront.net/thumbnails-platform-prod/assets/cs::content::shows/27740-29788/56812679-default_v1.jpg" />
+    <episode-num system="onscreen">S8 E7</episode-num>
+    <rating system="US">
+      <value>TV-14</value>
+    </rating>
+  </programme>
+  <programme start="20261120103200 +0000" stop="20261120112800 +0000" channel="plex.tv.A&amp;E.Alaska.State.Troopers.plex">
+    <title lang="en">Alaska State Troopers</title>
+    <sub-title lang="en">Highway Hijinks</sub-title>
+    <desc lang="en">Follow Troopers as they battle crime and enforce wildlife laws.</desc>
+    <date>2026</date>
+    <category lang="en">Crime</category>
+    <icon src="https://dki01q1l7yn3y.cloudfront.net/thumbnails-platform-prod/assets/cs::content::shows/27740-29788/56812679-default_v1.jpg" />
+    <episode-num system="onscreen">S2 E8</episode-num>
+    <rating system="US">
+      <value>TV-14</value>
+    </rating>
+  </programme>
+</tv>

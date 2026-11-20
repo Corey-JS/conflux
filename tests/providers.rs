@@ -1,6 +1,6 @@
 //! Each provider's parser against a sample of its responses.
 
-use conflux::model::Kind;
+use conflux::model::{Kind, Program};
 use conflux::providers::{plex, pluto, roku, samsung, tubi};
 use serde_json::Value;
 
@@ -151,6 +151,57 @@ fn plex_schedules_from_mirror() {
     );
     assert_eq!(map.len(), 2, "other regions left out");
     assert_eq!(plex::parse_programs(&mirror, "gb").len(), 1);
+}
+
+#[test]
+fn plex_show_art_from_epgshare01() {
+    let mirror = fixture("plex_mirror.json");
+    let channels = plex::parse_mirror(&mirror, "us");
+    let mut guide = plex::parse_programs(&mirror, "us");
+    let xml = text_fixture("plex_art.xml");
+    let now = 1_795_168_000;
+    let art = plex::ShowArt::parse(xml.as_bytes(), now).unwrap();
+    assert_eq!(art.channels(), 2);
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    std::io::Write::write_all(&mut gz, xml.as_bytes()).unwrap();
+    let served = plex::ShowArt::parse(&gz.finish().unwrap(), now).unwrap();
+    assert_eq!(served.channels(), 2, "served gzipped");
+
+    let cw_id = "plex:live:6a1610bebdf296985fd95603-66635fc0ca7b22f4c3a2d743";
+    let slot = |start: u64, title: &str| Program {
+        start,
+        stop: start + 3000,
+        title: title.into(),
+        subtitle: None,
+        description: None,
+        rating: None,
+        image: None,
+    };
+    let cw = guide.get_mut(cw_id).unwrap();
+    cw.push(slot(1_795_200_000, "Lost Girl"));
+    cw.push(slot(1_795_166_000, "Smallville"));
+    assert_eq!(plex::add_art(&mut guide, &channels, &art), 5);
+
+    let cw = &guide[cw_id];
+    let lost_girl = "https://images.frequency.com/video/7503911055139904521/solid/rectangle/w1920_h1080/17l5tjcubgb9l1jwrg7npolc4f.png";
+    let images: Vec<Option<&str>> = cw.iter().map(|p| p.image.as_deref()).collect();
+    assert_eq!(
+        images,
+        [Some(lost_girl), Some(lost_girl), Some(lost_girl), Some(lost_girl), None],
+        "art by title, even outside the file's times; none for a title it doesn't list"
+    );
+    let episodes: Vec<Option<&str>> = cw.iter().map(|p| p.subtitle.as_deref()).collect();
+    assert_eq!(
+        episodes,
+        [Some("Dark Horse"), Some("Like Hell: Part 1"), Some("Like Hell: Part 2"), None, None],
+        "episode details only for the same airing (starts differ by under a minute)"
+    );
+    assert_eq!(cw[0].rating.as_deref(), Some("TV-14"));
+    assert!(cw[0].description.as_deref().unwrap().contains("unthinkable sacrifice"));
+
+    let ae = &guide["plex:live:6a1610bebdf296985fd95603-6a024c8e981d28c38fb16f21"];
+    assert_eq!(ae[0].subtitle.as_deref(), Some("High-Speed Chase"), "'A&E' matches 'A&amp;E'");
+    assert!(ae[0].image.as_deref().unwrap().ends_with("/56812679-default_v1.jpg"));
 }
 
 #[test]

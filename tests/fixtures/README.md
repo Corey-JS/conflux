@@ -7,6 +7,8 @@ The exceptions, trimmed from real responses in Nov 2026:
 - `plex_mirror.json` and `plex_live_tv.html`: the i.mjh.nz Plex channel file
   and Plex's live TV page. The mirror's request headers and token are left
   out.
+- `plex_art.xml`: two channels from epgshare01's Plex guide (XMLTV), the
+  same ones as `plex_mirror.json`, with their programmes for the same hours.
 - `roku_mirror.json`: the i.mjh.nz Roku channel file, plus one made-up
   entry with a bad id. The mirror's request headers are left out.
 

@@ -14,25 +14,38 @@
 //!
 //! Either source alone still gives a channel list. On-demand search needed the
 //! guest token, so Plex no longer has it.
+//!
+//! The mirror's schedules have titles only. Show art, episode names and
+//! ratings come from epgshare01, a free public guide service that publishes
+//! Plex's schedule as XMLTV (see `ShowArt`); Plex's own airings feed needs a
+//! token too. That art is full size, so Conflux serves shrunken copies.
 
 use std::collections::HashMap;
+use std::io::BufReader;
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
+use tokio::sync::Mutex;
 
 use super::json::str_of;
-use super::{Provider, mjh};
+use super::{Provider, mjh, xmltv};
 use crate::model::{Item, Kind, Program, clean, is_web_url};
 
 const MIRROR_URL: &str = "https://i.mjh.nz/Plex/.channels.json.gz";
 const PAGE_URL: &str = "https://watch.plex.tv/live-tv";
 const CHANNEL_URL: &str = "https://watch.plex.tv/live-tv/channel/";
+const ART_URL: &str = "https://epgshare01.online/epgshare01/epg_ripper_PLEX1.xml.gz";
+/// The file (about 5 MB) is rebuilt about once a day.
+const ART_EVERY: Duration = Duration::from_secs(6 * 3600);
 
 pub struct Plex {
     region: String,
     schedules: mjh::Schedules,
+    art: Mutex<Option<(Instant, Arc<ShowArt>)>>,
 }
 
 impl Default for Plex {
@@ -48,6 +61,7 @@ impl Plex {
                 .map(|r| r.trim().to_lowercase())
                 .unwrap_or_else(|_| "us".into()),
             schedules: mjh::Schedules::default(),
+            art: Mutex::new(None),
         }
     }
 
@@ -59,6 +73,47 @@ impl Plex {
         self.schedules.set(parse_programs(&v, &self.region)).await;
         Ok(v)
     }
+
+    async fn programs(&self, http: &Client) -> Result<HashMap<String, Vec<Program>>> {
+        if let Some(map) = self.schedules.recent().await {
+            return Ok(map);
+        }
+        self.fetch_mirror(http).await?;
+        Ok(self.schedules.recent().await.unwrap_or_default())
+    }
+
+    /// Show art, downloaded every `ART_EVERY`. If a download fails the last
+    /// art is kept, and the next guide refresh tries again.
+    async fn show_art(&self, http: &Client) -> Option<Arc<ShowArt>> {
+        let mut held = self.art.lock().await;
+        if !held.as_ref().is_some_and(|(at, _)| at.elapsed() < ART_EVERY) {
+            match fetch_art(http).await {
+                Ok(art) => {
+                    tracing::info!("plex: show art for {} channels (epgshare01)", art.channels());
+                    *held = Some((Instant::now(), Arc::new(art)));
+                }
+                Err(e) => tracing::warn!("plex: no new show art (epgshare01): {e:#}"),
+            }
+        }
+        held.as_ref().map(|(_, art)| Arc::clone(art))
+    }
+}
+
+async fn fetch_art(http: &Client) -> Result<ShowArt> {
+    let bytes = http
+        .get(ART_URL)
+        .timeout(Duration::from_secs(90))
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let art = tokio::task::spawn_blocking(move || ShowArt::parse(&bytes, now)).await??;
+    if art.channels() == 0 {
+        anyhow::bail!("no programmes with art (the file's format may have changed)");
+    }
+    Ok(art)
 }
 
 async fn fetch_page(http: &Client) -> Result<Vec<PageChannel>> {
@@ -115,12 +170,17 @@ impl Provider for Plex {
     fn has_guide(&self) -> bool {
         true
     }
-    async fn guide(&self, http: &Client, _channels: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
-        if let Some(map) = self.schedules.recent().await {
-            return Ok(map);
+    async fn guide(&self, http: &Client, channels: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
+        let (map, art) = tokio::join!(self.programs(http), self.show_art(http));
+        let mut map = map?;
+        if let Some(art) = art {
+            let n = add_art(&mut map, channels, &art);
+            tracing::info!("plex: show art for {n} programs");
         }
-        self.fetch_mirror(http).await?;
-        Ok(self.schedules.recent().await.unwrap_or_default())
+        Ok(map)
+    }
+    fn shrink_art(&self) -> bool {
+        true
     }
 }
 
@@ -178,6 +238,93 @@ pub fn parse_programs(v: &Value, region: &str) -> HashMap<String, Vec<Program>> 
             (!programs.is_empty()).then(|| (format!("plex:{}", item_id(id)), programs))
         })
         .collect()
+}
+
+/// Programmes that have art, from epgshare01's Plex guide, by channel name
+/// (see `name_key`). Its channel ids are made from names
+/// ("plex.tv.CW.Forever.plex"), not Plex's ids, so names are the link.
+#[derive(Debug, Default)]
+pub struct ShowArt(HashMap<String, Vec<(String, xmltv::Programme)>>);
+
+impl ShowArt {
+    /// `bytes` is the XMLTV file, gzip or not. Keeps programmes from 6 hours
+    /// before `now` to 36 hours after (the mirror's schedules span about a day).
+    pub fn parse(bytes: &[u8], now: u64) -> Result<ShowArt> {
+        let (from, to) = (now.saturating_sub(6 * 3600), now + 36 * 3600);
+        let channels = if bytes.starts_with(&[0x1f, 0x8b]) {
+            xmltv::parse(BufReader::new(flate2::read::GzDecoder::new(bytes)), from, to)?
+        } else {
+            xmltv::parse(bytes, from, to)?
+        };
+        let mut by_name = HashMap::new();
+        for c in channels.into_values().filter(|c| !c.programmes.is_empty()) {
+            let slots: Vec<_> = c.programmes.into_iter().map(|p| (name_key(&p.title), p)).collect();
+            for name in &c.names {
+                by_name.entry(name_key(name)).or_insert_with(|| slots.clone());
+            }
+        }
+        by_name.remove("");
+        Ok(ShowArt(by_name))
+    }
+
+    pub fn channels(&self) -> usize {
+        self.0.len()
+    }
+
+    /// The programme for `p` on the channel named `channel`: the one airing
+    /// halfway through `p` if the titles match (`true`: the same airing).
+    /// Otherwise the nearest one with the same title, for its show art.
+    fn find(&self, channel: &str, p: &Program) -> Option<(&xmltv::Programme, bool)> {
+        let slots = self.0.get(&name_key(channel))?;
+        let title = name_key(&p.title);
+        let mid = p.start + p.stop.saturating_sub(p.start) / 2;
+        let same_title = || slots.iter().filter(|(t, _)| *t == title).map(|(_, s)| s);
+        if let Some(s) = same_title().find(|s| s.start <= mid && mid < s.stop) {
+            return Some((s, true));
+        }
+        same_title().min_by_key(|s| s.start.abs_diff(p.start)).map(|s| (s, false))
+    }
+}
+
+/// Lowercase letters and digits only, so "A&E Alaska State Troopers" and
+/// "A and E alaska state troopers" match.
+fn name_key(s: &str) -> String {
+    s.replace('&', " and ")
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Add show art to `guide`'s programs (and, for the same airing, the episode
+/// name, description and rating). Returns how many programs got art.
+pub fn add_art(guide: &mut HashMap<String, Vec<Program>>, channels: &[Item], art: &ShowArt) -> usize {
+    let mut n = 0;
+    for ch in channels {
+        let Some(programs) = guide.get_mut(&ch.id) else {
+            continue;
+        };
+        for p in programs {
+            let Some((s, same_airing)) = art.find(&ch.title, p) else {
+                continue;
+            };
+            if p.image.is_none() {
+                p.image = Some(s.image.clone());
+                n += 1;
+            }
+            if same_airing {
+                // Some channels repeat their own name as the episode name.
+                let episode = s.subtitle.clone().filter(|e| {
+                    let e = name_key(e);
+                    e != name_key(&p.title) && e != name_key(&ch.title)
+                });
+                p.subtitle = p.subtitle.take().or(episode);
+                p.description = p.description.take().or_else(|| s.description.clone());
+                p.rating = p.rating.take().or_else(|| s.rating.clone());
+            }
+        }
+    }
+    n
 }
 
 /// One channel as listed on Plex's live TV page.
@@ -319,6 +466,30 @@ mod tests {
             Some(("A&E / News".to_string(), ",rest"))
         );
         assert_eq!(read_str("no closing quote"), None);
+    }
+
+    #[test]
+    fn episode_names_that_repeat_the_channel_are_skipped() {
+        let xml = r#"<tv><channel id="c"><display-name>123GO!</display-name></channel>
+<programme start="20261120080000 +0000" stop="20261120090000 +0000" channel="c">
+<title>Makeovers</title><sub-title>123GO!</sub-title><icon src="https://x.example/a.jpg"/>
+</programme></tv>"#;
+        let art = ShowArt::parse(xml.as_bytes(), 1_795_161_600).unwrap();
+        let ch = Item::new("plex", "live:1", Kind::Live, "123GO!", PAGE_URL.into());
+        let p = Program {
+            start: 1_795_161_600,
+            stop: 1_795_165_200,
+            title: "Makeovers".into(),
+            subtitle: None,
+            description: None,
+            rating: None,
+            image: None,
+        };
+        let mut guide = HashMap::from([(ch.id.clone(), vec![p])]);
+        assert_eq!(add_art(&mut guide, std::slice::from_ref(&ch), &art), 1);
+        let p = &guide[&ch.id][0];
+        assert_eq!(p.image.as_deref(), Some("https://x.example/a.jpg"));
+        assert_eq!(p.subtitle, None);
     }
 
     #[test]
