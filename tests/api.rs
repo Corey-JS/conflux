@@ -3,12 +3,14 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use conflux::catalog::Store;
 use conflux::model::{Item, Kind, Program};
-use conflux::providers::Provider;
+use conflux::providers::{Provider, Throttled};
 use reqwest::Client;
 use serde_json::Value;
 
@@ -385,4 +387,137 @@ async fn serves_the_app() {
         .await
         .unwrap();
     assert_eq!(r.status(), 200);
+}
+
+// ---- Rate limits ----
+
+/// Searched live; counts the searches that actually reach it.
+struct Counted(Arc<AtomicUsize>);
+#[async_trait]
+impl Provider for Counted {
+    fn id(&self) -> &'static str {
+        "roku"
+    }
+    fn name(&self) -> &'static str {
+        "The Roku Channel"
+    }
+    fn has_search(&self) -> bool {
+        true
+    }
+    async fn search(&self, _: &Client, q: &str) -> Result<Vec<Item>> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(vec![Item::new("roku", q, Kind::Movie, q, "https://therokuchannel.roku.com/x".into())])
+    }
+}
+
+/// Searched live; always says "too many requests".
+struct Throttling(Arc<AtomicUsize>);
+#[async_trait]
+impl Provider for Throttling {
+    fn id(&self) -> &'static str {
+        "roku"
+    }
+    fn name(&self) -> &'static str {
+        "The Roku Channel"
+    }
+    fn has_search(&self) -> bool {
+        true
+    }
+    async fn search(&self, _: &Client, _: &str) -> Result<Vec<Item>> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Err(Throttled { host: "roku.test".into(), wait: Duration::from_secs(600) }.into())
+    }
+}
+
+async fn search_as(base: &str, q: &str, ip: &str) -> (u16, Value) {
+    let c = Client::builder().no_proxy().build().unwrap();
+    let r = c
+        .get(format!("{base}/api/search"))
+        .query(&[("q", q)])
+        .header("X-Forwarded-For", ip)
+        .send()
+        .await
+        .unwrap();
+    let status = r.status().as_u16();
+    (status, r.json().await.unwrap_or(Value::Null))
+}
+
+#[tokio::test]
+async fn live_searches_to_a_provider_are_capped() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let base = start_with(vec![Arc::new(Counted(calls.clone()))]).await;
+    let mut skipped = 0;
+    // Different visitors, so only the provider's own cap applies.
+    for i in 0..20 {
+        let (s, v) = search_as(&base, &format!("query {i}"), &format!("198.51.100.{i}")).await;
+        assert_eq!(s, 200);
+        if v["unavailable"].as_array().unwrap().iter().any(|n| n == "The Roku Channel") {
+            skipped += 1;
+        }
+    }
+    let sent = calls.load(Ordering::SeqCst);
+    assert!(sent <= 7, "a burst of 5 then about one a second, got {sent}");
+    assert_eq!(sent + skipped, 20, "skipped searches are reported as unavailable");
+    // A repeat is answered from the cache and costs nothing.
+    let (_, v) = search_as(&base, "query 0", "198.51.100.99").await;
+    assert_eq!(titles(&v), vec!["query 0"]);
+    assert_eq!(calls.load(Ordering::SeqCst), sent);
+}
+
+#[tokio::test]
+async fn a_provider_that_says_slow_down_is_left_alone() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let base = start_with(vec![Arc::new(CatalogFake), Arc::new(Throttling(calls.clone()))]).await;
+    for q in ["star", "trek", "news"] {
+        let (s, v) = search_as(&base, q, "198.51.100.1").await;
+        assert_eq!(s, 200);
+        assert_eq!(v["unavailable"][0], "The Roku Channel");
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "no more requests while paused");
+    let (_, v) = get(&base, "/api/providers").await;
+    let roku = &v["providers"][1];
+    assert!(roku["paused_until"].as_u64().unwrap() > 0);
+    assert!(roku["search_error"].as_str().unwrap().contains("slow down"));
+}
+
+#[tokio::test]
+async fn one_visitor_cannot_flood_search() {
+    let base = start().await;
+    let mut limited = None;
+    for i in 0..40 {
+        let (s, v) = search_as(&base, "star", "203.0.113.7").await;
+        if s == 429 {
+            assert!(v["retry_after"].as_u64().unwrap() >= 1);
+            limited = Some(i);
+            break;
+        }
+    }
+    let at = limited.expect("a flood is cut off");
+    assert!((30..=32).contains(&at), "a burst of 30 is allowed, cut off at {at}");
+    // Someone else is unaffected.
+    assert_eq!(search_as(&base, "star", "203.0.113.8").await.0, 200);
+}
+
+#[tokio::test]
+async fn too_many_requests_is_recognized_with_its_wait() {
+    use axum::http::{StatusCode, header};
+    use conflux::providers::{get_json, throttled};
+    let app = axum::Router::new()
+        .route("/slow", axum::routing::get(|| async { (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "120")], "slow down") }))
+        .route("/bare", axum::routing::get(|| async { StatusCode::TOO_MANY_REQUESTS }))
+        .route("/gone", axum::routing::get(|| async { StatusCode::NOT_FOUND }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let c = Client::builder().no_proxy().build().unwrap();
+
+    let e = get_json(c.get(format!("http://{addr}/slow"))).await.unwrap_err();
+    assert_eq!(throttled(&e), Some(Duration::from_secs(120)));
+    let e = get_json(c.get(format!("http://{addr}/bare"))).await.unwrap_err();
+    assert_eq!(throttled(&e), Some(Duration::from_secs(15 * 60)), "no Retry-After: the default pause");
+    // Through error_for_status, as the mirror and art downloads use.
+    let e: anyhow::Error = c.get(format!("http://{addr}/bare")).send().await.unwrap().error_for_status().unwrap_err().into();
+    assert!(throttled(&e).is_some());
+    let e = get_json(c.get(format!("http://{addr}/gone"))).await.unwrap_err();
+    assert_eq!(throttled(&e), None, "other errors aren't a slow-down");
 }

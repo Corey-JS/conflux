@@ -28,6 +28,19 @@ There are two kinds of provider:
   Channel's on-demand library), so the server forwards each query to them
   and caches the answer for 15 minutes.
 
+To stay a polite guest, Conflux limits what it asks of providers:
+
+- Live searches to any one provider are capped at a burst of 5, then about
+  one a second. Past that, results come from the other providers and that
+  one is shown as unavailable for the search. Cached answers don't count.
+- A provider that answers "too many requests" (HTTP 429) is left alone,
+  catalog, schedules and search, for as long as its Retry-After says
+  (15 minutes if it doesn't say; 1 minute to 6 hours). `/api/providers`
+  shows `paused_until` meanwhile. Image hosts get the same treatment.
+- Each visitor may search 30 times in a burst, then once a second; past
+  that `/api/search` answers 429. The app searches once typing pauses, not
+  on every letter.
+
 Every provider sits in its own module. If one breaks, the others keep
 working, and `/api/providers` shows which one failed and why.
 
@@ -57,7 +70,7 @@ cargo test
 ```
 
 On a phone the app must be served over HTTPS to install; see
-[docs/DEPLOY.md](docs/DEPLOY.md) for the Google Cloud VM setup.
+[docs/DEPLOY.md](docs/DEPLOY.md) for the Oracle Cloud VM setup and how to update it.
 
 ## API
 

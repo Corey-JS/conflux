@@ -146,6 +146,8 @@ impl Provider for Roku {
             .await;
             match res {
                 Ok(v) => return Ok(parse_search(&v)),
+                // Asking again straight away is the opposite of slowing down.
+                Err(e) if super::throttled(&e).is_some() => return Err(e).context("Roku search"),
                 Err(e) => last_err = Some(e),
             }
         }

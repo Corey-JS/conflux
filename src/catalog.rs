@@ -13,13 +13,22 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::art::Art;
 use crate::model::{Item, Kind, LiveEntry, Program};
-use crate::providers::Provider;
+use crate::limit::Limiter;
+use crate::providers::{Provider, throttled};
 use crate::search::{Indexed, Query, rank};
 
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(7);
 const SEARCH_CACHE_TTL: Duration = Duration::from_secs(15 * 60);
 const SEARCH_CACHE_MAX: usize = 500;
 const GUIDE_EVERY: Duration = Duration::from_secs(20 * 60);
+/// Live searches sent to any one provider: a short burst, then about one a
+/// second. Past that, results come from the rest and that provider is
+/// reported unavailable for the search. Cached answers don't count.
+const LIVE_SEARCH_PER_SEC: f64 = 1.0;
+const LIVE_SEARCH_BURST: u32 = 5;
+/// Searches one visitor may make: a burst of 30, then one a second.
+const VISITOR_PER_SEC: f64 = 1.0;
+const VISITOR_BURST: u32 = 30;
 /// How far ahead the guide view shows.
 const GUIDE_AHEAD_SECS: u64 = 6 * 3600;
 const GUIDE_MAX_PROGRAMS: usize = 8;
@@ -45,6 +54,10 @@ pub struct Status {
     pub guide_channels: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guide_error: Option<String>,
+    /// Unix seconds until which Conflux leaves this provider alone, because
+    /// it answered "too many requests".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused_until: Option<u64>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -65,6 +78,10 @@ pub struct Store {
     state: RwLock<State>,
     search_cache: Mutex<HashMap<(String, String), (Instant, Vec<Item>)>>,
     art: Arc<Art>,
+    /// provider id -> when it may be asked again, after a "slow down".
+    paused: std::sync::Mutex<HashMap<String, Instant>>,
+    live_searches: Limiter,
+    visitors: Limiter,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -162,6 +179,9 @@ impl Store {
             state: RwLock::new(state),
             search_cache: Mutex::new(HashMap::new()),
             art: Arc::new(Art::from_env()),
+            paused: std::sync::Mutex::new(HashMap::new()),
+            live_searches: Limiter::new(LIVE_SEARCH_PER_SEC, LIVE_SEARCH_BURST),
+            visitors: Limiter::new(VISITOR_PER_SEC, VISITOR_BURST),
         })
     }
 
@@ -172,6 +192,40 @@ impl Store {
 
     pub fn providers(&self) -> &[Arc<dyn Provider>] {
         &self.providers
+    }
+
+    /// Per-visitor search limit (see `api`). Ok, or how long to wait.
+    pub fn visitor_may_search(&self, visitor: &str) -> Result<(), Duration> {
+        self.visitors.take(visitor)
+    }
+
+    /// True while a provider that said "too many requests" is left alone.
+    fn is_paused(&self, id: &str) -> bool {
+        let mut paused = self.paused.lock().unwrap_or_else(|e| e.into_inner());
+        match paused.get(id) {
+            Some(until) if Instant::now() < *until => true,
+            Some(_) => {
+                paused.remove(id);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// If `e` means "slow down", leave the provider alone for a while: no
+    /// catalog, schedule or search requests until then.
+    async fn pause_if_throttled(&self, id: &str, e: &anyhow::Error) {
+        let Some(wait) = throttled(e) else { return };
+        let until = Instant::now() + wait;
+        {
+            let mut paused = self.paused.lock().unwrap_or_else(|e| e.into_inner());
+            let at = paused.entry(id.to_string()).or_insert(until);
+            *at = (*at).max(until);
+        }
+        tracing::warn!("{id}: asked to slow down; leaving it alone for {} min", wait.as_secs().div_ceil(60));
+        let mut st = self.state.write().await;
+        let status = st.status.entry(id.to_string()).or_default();
+        status.paused_until = Some(now() + wait.as_secs());
     }
 
     fn name_of(&self, id: &str) -> String {
@@ -185,11 +239,14 @@ impl Store {
     /// Download one provider's catalog. On failure the previous catalog is
     /// kept, so a provider having a bad hour doesn't empty the app.
     pub async fn refresh(&self, p: &Arc<dyn Provider>) {
-        if !p.has_catalog() {
+        if !p.has_catalog() || self.is_paused(p.id()) {
             return;
         }
         let started = Instant::now();
         let res = p.catalog(&self.http).await;
+        if let Err(e) = &res {
+            self.pause_if_throttled(p.id(), e).await;
+        }
         let mut st = self.state.write().await;
         let status = st.status.entry(p.id().to_string()).or_default();
         match res {
@@ -239,10 +296,13 @@ impl Store {
                     })
                     .unwrap_or_default()
             };
-            if channels.is_empty() {
+            if channels.is_empty() || self.is_paused(p.id()) {
                 return;
             }
             let mut res = p.guide(&self.http, &channels).await;
+            if let Err(e) = &res {
+                self.pause_if_throttled(p.id(), e).await;
+            }
             if p.shrink_art()
                 && let Ok(map) = &mut res
             {
@@ -293,9 +353,14 @@ impl Store {
 
     pub async fn statuses(&self) -> Vec<Status> {
         let st = self.state.read().await;
+        let t = now();
         self.providers
             .iter()
             .filter_map(|p| st.status.get(p.id()).cloned())
+            .map(|mut s| {
+                s.paused_until = s.paused_until.filter(|&u| u > t);
+                s
+            })
             .collect()
     }
 
@@ -356,6 +421,13 @@ impl Store {
         {
             return Ok(items.clone());
         }
+        if self.is_paused(p.id()) {
+            return Err(());
+        }
+        if self.live_searches.take(p.id()).is_err() {
+            tracing::debug!("{}: live search limit reached; skipped \"{q}\"", p.id());
+            return Err(());
+        }
         let res = match tokio::time::timeout(SEARCH_TIMEOUT, p.search(&self.http, q)).await {
             Ok(r) => r,
             Err(_) => Err(anyhow::anyhow!("timed out after {:?}", SEARCH_TIMEOUT)),
@@ -385,6 +457,7 @@ impl Store {
             }
             Err(e) => {
                 tracing::warn!("{}: search failed: {e:#}", p.id());
+                self.pause_if_throttled(p.id(), &e).await;
                 Err(())
             }
         }

@@ -29,7 +29,7 @@ use reqwest::{Client, redirect};
 use tokio::sync::{Mutex, RwLock, Semaphore};
 
 use crate::model::Program;
-use crate::providers::USER_AGENT;
+use crate::providers::{DEFAULT_PAUSE, USER_AGENT, throttled};
 
 /// The guide's 56×80 thumbnail at 3× pixel density.
 pub const WIDTH: u32 = 168;
@@ -64,6 +64,8 @@ pub struct Art {
     queued: Mutex<Vec<u64>>,
     preparing: AtomicBool,
     pruned_at: Mutex<Option<Instant>>,
+    /// After an image host says "too many requests", no downloads until then.
+    paused_until: std::sync::Mutex<Option<Instant>>,
 }
 
 #[derive(Default)]
@@ -137,6 +139,7 @@ impl Art {
             queued: Mutex::new(Vec::new()),
             preparing: AtomicBool::new(false),
             pruned_at: Mutex::new(None),
+            paused_until: std::sync::Mutex::new(None),
         }
     }
 
@@ -256,6 +259,9 @@ impl Art {
             return Some(b);
         }
         let url = self.sources.read().await.values().find_map(|m| m.get(&key).cloned())?;
+        if self.is_paused() {
+            return None;
+        }
         let _permit = self.gate.acquire().await.ok()?;
         // Another request may have made it while this one waited.
         if let Lookup::Hit(b) = self.lookup(key).await {
@@ -267,12 +273,26 @@ impl Art {
                 self.keep(key, b.clone()).await;
                 Some(b)
             }
+            Err(e) if throttled(&e).is_some() => {
+                // Not this image's fault: leave it to be tried after the pause.
+                let wait = throttled(&e).unwrap_or(DEFAULT_PAUSE);
+                *self.paused_until.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now() + wait);
+                tracing::warn!("art: image host asked us to slow down; no downloads for {} min", wait.as_secs().div_ceil(60));
+                None
+            }
             Err(e) => {
                 tracing::debug!("art: {url}: {e:#}");
                 self.cache.lock().await.fail(key);
                 None
             }
         }
+    }
+
+    fn is_paused(&self) -> bool {
+        self.paused_until
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some_and(|until| Instant::now() < until)
     }
 
     async fn lookup(&self, key: u64) -> Lookup {

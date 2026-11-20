@@ -7,6 +7,7 @@
 pub mod api;
 pub mod art;
 pub mod catalog;
+pub mod limit;
 pub mod model;
 pub mod providers;
 pub mod search;

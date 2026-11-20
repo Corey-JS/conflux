@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::get;
 use serde::Deserialize;
@@ -54,7 +54,31 @@ fn bad(msg: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))).into_response()
 }
 
-async fn search(State(store): State<Arc<Store>>, Query(p): Query<Params>) -> Response {
+/// Who's asking, for the per-visitor search limit. Behind Caddy that's the
+/// last X-Forwarded-For entry: the address Caddy itself saw (Caddy replaces
+/// whatever a client sends, but the last entry is the safe one either way).
+fn visitor(headers: &HeaderMap) -> String {
+    headers
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
+        .rfind(|s| !s.is_empty())
+        .unwrap_or("direct")
+        .to_string()
+}
+
+async fn search(State(store): State<Arc<Store>>, headers: HeaderMap, Query(p): Query<Params>) -> Response {
+    if let Err(wait) = store.visitor_may_search(&visitor(&headers)) {
+        let secs = wait.as_secs().max(1);
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, secs.to_string())],
+            Json(json!({ "error": "too many searches", "retry_after": secs })),
+        )
+            .into_response();
+    }
     let f = match filter(&store, &p) {
         Ok(f) => f,
         Err(r) => return r,

@@ -5,7 +5,8 @@
 #   bash deploy/install.sh                  # uses <external-ip>.sslip.io
 #   bash deploy/install.sh tv.example.com   # uses your own domain
 #
-# Tested target: Debian 12 / Ubuntu 22.04+ on Google Compute Engine.
+# Tested target: Ubuntu 22.04+ on Oracle Cloud (Ampere A1); also Debian 12 /
+# Ubuntu on Google Compute Engine.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"

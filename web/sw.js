@@ -1,6 +1,6 @@
 // Offline shell: the app opens instantly from cache; searches always go to
 // the network (they're useless stale).
-const VERSION = "conflux-v7";
+const VERSION = "conflux-v8";
 const SHELL = [
   "/", "/index.html", "/app.css", "/app.js", "/manifest.webmanifest",
   "/icons/favicon-32.png", "/icons/apple-touch-icon.png", "/icons/icon-192.png", "/icons/icon-512.png",

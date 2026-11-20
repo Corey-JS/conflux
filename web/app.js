@@ -370,7 +370,7 @@ function render(items, emptyText) {
 
 async function getJSON(url, signal) {
   const r = await fetch(url, { signal, headers: { Accept: "application/json" } });
-  if (!r.ok) throw new Error(r.status === 503 ? "offline" : `HTTP ${r.status}`);
+  if (!r.ok) throw new Error(r.status === 503 ? "offline" : r.status === 429 ? "busy" : `HTTP ${r.status}`);
   return r.json();
 }
 
@@ -432,9 +432,13 @@ async function update() {
     els.results.replaceChildren();
     note(navigator.onLine === false || e.message === "offline"
       ? "You're offline. Search needs a connection."
-      : "Couldn't reach the Conflux server. Try again.");
+      : e.message === "busy"
+        ? "That's a lot of searches. Give it a few seconds and try again."
+        : "Couldn't reach the Conflux server. Try again.");
   }
 }
+
+const TYPING_PAUSE = 600;
 
 function schedule(delay = 250) {
   clearTimeout(timer);
@@ -669,7 +673,9 @@ function init() {
   els.q.value = state.q;
   setPressed(document.querySelector(".kinds"), "kind", state.kind);
 
-  els.q.addEventListener("input", () => { state.q = els.q.value; schedule(); });
+  // Search once typing pauses, not on every letter: each new query may go
+  // out to a provider's own search.
+  els.q.addEventListener("input", () => { state.q = els.q.value; schedule(TYPING_PAUSE); });
   els.form.addEventListener("submit", (e) => { e.preventDefault(); els.q.blur(); schedule(0); });
   els.clear.addEventListener("click", () => { els.q.value = state.q = ""; els.q.focus(); schedule(0); });
 
