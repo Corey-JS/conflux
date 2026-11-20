@@ -24,7 +24,9 @@ PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-MemoryMax=300M
+
+# No memory cap: with Pluto, Plex and Roku loaded Conflux uses about 300 MB.
+# On a small VM shared with other apps, set MemoryMax= in a drop-in instead.
 
 [Install]
 WantedBy=multi-user.target
