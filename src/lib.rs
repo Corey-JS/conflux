@@ -5,6 +5,7 @@
 )]
 
 pub mod api;
+pub mod art;
 pub mod catalog;
 pub mod model;
 pub mod providers;

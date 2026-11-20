@@ -14,7 +14,7 @@ EnvironmentFile=-/etc/conflux.env
 Restart=always
 RestartSec=5
 
-# Runs as a throwaway user with no write access anywhere.
+# Runs as a throwaway user that can write only to its cache folder (below).
 DynamicUser=yes
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -24,8 +24,12 @@ PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# The one place it may write: shrunken show art (/var/cache/conflux), kept
+# across restarts so thumbnails aren't fetched again after every deploy.
+CacheDirectory=conflux
 
-# No memory cap: with Pluto, Plex and Roku loaded Conflux uses about 300 MB.
+# No memory cap: with Pluto, Plex and Roku loaded, Conflux levels off around
+# 700 MB after a few refreshes.
 # On a small VM shared with other apps, set MemoryMax= in a drop-in instead.
 
 [Install]

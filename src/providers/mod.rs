@@ -44,6 +44,11 @@ pub trait Provider: Send + Sync {
     async fn guide(&self, _http: &Client, _channels: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
         Ok(HashMap::new())
     }
+    /// True if this provider's show art is full size (often megabytes), so
+    /// Conflux serves shrunken copies instead (see `art`).
+    fn shrink_art(&self) -> bool {
+        false
+    }
 
     /// True if this provider is searched live, per query, because its
     /// library is too big to download (Roku, Tubi).

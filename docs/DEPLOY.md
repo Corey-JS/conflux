@@ -89,6 +89,7 @@ Put any of these in `/etc/conflux.env` and run `sudo systemctl restart conflux`:
 | `CONFLUX_REFRESH_MINUTES` | `60` | How often to re-download the channel and catalog lists. |
 | `CONFLUX_PLEX_REGION` | `us` | Plex region code: `us`, `ca`, `gb`, `au`, `nz`, `mx`, `es` or `fr`. |
 | `CONFLUX_SAMSUNG_REGION` | `us` | Samsung TV Plus region code. |
+| `CONFLUX_ART_DIR` | `/var/cache/conflux/art` under systemd | Where shrunken show art is kept between restarts. Without it (and outside systemd) thumbnails are kept in memory only. Each is deleted 30 days after it's made, and made again if still needed. |
 | `RUST_LOG` | `conflux=info,warn` | Log detail (`conflux=debug` for more). |
 
 ## Troubleshooting

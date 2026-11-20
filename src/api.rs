@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::get;
@@ -89,6 +89,22 @@ async fn providers(State(store): State<Arc<Store>>) -> Response {
     Json(json!({ "providers": store.statuses().await })).into_response()
 }
 
+/// A shrunken copy of a show's art (see `art`). The key comes from the
+/// guide and stands for one image URL, so the copy can be cached for good.
+async fn art(State(store): State<Arc<Store>>, Path(key): Path<String>) -> Response {
+    match store.art().get(&key).await {
+        Some(jpeg) => (
+            [
+                (header::CONTENT_TYPE, "image/jpeg"),
+                (header::CACHE_CONTROL, "public, max-age=604800, immutable"),
+            ],
+            jpeg,
+        )
+            .into_response(),
+        None => (StatusCode::NOT_FOUND, [(header::CACHE_CONTROL, "no-store")]).into_response(),
+    }
+}
+
 async fn health() -> &'static str {
     "ok"
 }
@@ -103,6 +119,12 @@ pub fn router(store: Arc<Store>, web_dir: PathBuf) -> Router {
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store"),
         ))
+        .with_state(store.clone());
+
+    // Images change only with their URL, so these may be cached (unlike the
+    // rest of the API).
+    let art = Router::new()
+        .route("/api/art/{key}", get(art))
         .with_state(store);
 
     // Small files; the service worker does the offline caching.
@@ -113,7 +135,8 @@ pub fn router(store: Arc<Store>, web_dir: PathBuf) -> Router {
             HeaderValue::from_static("no-cache"),
         ));
 
-    api.merge(static_files)
+    api.merge(art)
+        .merge(static_files)
         .layer(SetResponseHeaderLayer::if_not_present(
             header::X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),

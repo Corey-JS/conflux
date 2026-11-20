@@ -1,12 +1,13 @@
 //! The HTTP API end to end, with fake providers standing in for real ones:
 //! one with a catalog, one searched live, one that always fails.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use conflux::catalog::Store;
-use conflux::model::{Item, Kind};
+use conflux::model::{Item, Kind, Program};
 use conflux::providers::Provider;
 use reqwest::Client;
 use serde_json::Value;
@@ -176,6 +177,53 @@ impl Provider for Both {
     }
 }
 
+/// Show art at full size, like Plex: the guide should link shrunken copies.
+struct BigArt;
+#[async_trait]
+impl Provider for BigArt {
+    fn id(&self) -> &'static str {
+        "plex"
+    }
+    fn name(&self) -> &'static str {
+        "Plex"
+    }
+    fn has_catalog(&self) -> bool {
+        true
+    }
+    async fn catalog(&self, _: &Client) -> Result<Vec<Item>> {
+        Ok(vec![Item::new("plex", "live:1", Kind::Live, "CW Forever", "https://watch.plex.tv/live-tv".into())])
+    }
+    fn has_guide(&self) -> bool {
+        true
+    }
+    async fn guide(&self, _: &Client, _: &[Item]) -> Result<HashMap<String, Vec<Program>>> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let slot = |start: u64, image: &str| Program {
+            start,
+            stop: start + 1800,
+            title: "Lost Girl".into(),
+            subtitle: None,
+            description: None,
+            rating: None,
+            image: Some(image.into()),
+        };
+        Ok(HashMap::from([(
+            "plex:live:1".to_string(),
+            vec![
+                // .invalid never resolves, so fetching it fails without a network.
+                slot(now - 600, "https://art.invalid/lost-girl-2000x3000.jpg"),
+                slot(now + 1200, "http://169.254.169.254/latest/meta-data"),
+            ],
+        )]))
+    }
+    fn shrink_art(&self) -> bool {
+        true
+    }
+}
+
 async fn start() -> String {
     start_with(vec![
         Arc::new(CatalogFake),
@@ -289,6 +337,25 @@ async fn a_channel_found_both_ways_shows_once_with_its_number() {
     assert_eq!(items.len(), 1, "{v}");
     assert_eq!(items[0]["title"], "News 24 Live", "the downloaded copy wins");
     assert_eq!(items[0]["channel_number"], 103);
+}
+
+#[tokio::test]
+async fn full_size_art_is_served_shrunk_and_only_from_the_guide() {
+    let base = start_with(vec![Arc::new(BigArt)]).await;
+    let (_, v) = get(&base, "/api/live").await;
+    let programs = v["items"][0]["programs"].as_array().unwrap();
+    let art = programs[0]["image"].as_str().unwrap();
+    assert!(art.starts_with("/api/art/") && art.len() == "/api/art/".len() + 16, "{art}");
+    assert!(programs[1].get("image").is_none(), "not https from a named host: dropped");
+
+    let c = Client::builder().no_proxy().build().unwrap();
+    let r = c.get(format!("{base}{art}")).send().await.unwrap();
+    assert_eq!(r.status().as_u16(), 404, "the original can't be fetched");
+    assert_eq!(r.headers()["cache-control"], "no-store");
+    for path in ["/api/art/0123456789abcdef", "/api/art/..%2F..%2Fetc", "/api/art/https%3A%2F%2Fexample.com"] {
+        let (status, _) = get(&base, path).await;
+        assert_eq!(status, 404, "{path}: only keys from the current guide");
+    }
 }
 
 #[tokio::test]

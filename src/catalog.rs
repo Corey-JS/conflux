@@ -11,6 +11,7 @@ use reqwest::Client;
 use serde::Serialize;
 use tokio::sync::{Mutex, RwLock};
 
+use crate::art::Art;
 use crate::model::{Item, Kind, LiveEntry, Program};
 use crate::providers::Provider;
 use crate::search::{Indexed, Query, rank};
@@ -63,6 +64,7 @@ pub struct Store {
     http: Client,
     state: RwLock<State>,
     search_cache: Mutex<HashMap<(String, String), (Instant, Vec<Item>)>>,
+    art: Arc<Art>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -159,7 +161,13 @@ impl Store {
             http,
             state: RwLock::new(state),
             search_cache: Mutex::new(HashMap::new()),
+            art: Arc::new(Art::from_env()),
         })
+    }
+
+    /// Shrunken show art for providers whose art is full size.
+    pub fn art(&self) -> &Art {
+        &self.art
     }
 
     pub fn providers(&self) -> &[Arc<dyn Provider>] {
@@ -234,7 +242,13 @@ impl Store {
             if channels.is_empty() {
                 return;
             }
-            let res = p.guide(&self.http, &channels).await;
+            let mut res = p.guide(&self.http, &channels).await;
+            if p.shrink_art()
+                && let Ok(map) = &mut res
+            {
+                let soon = self.art.adopt(p.id(), map).await;
+                tokio::spawn(Arc::clone(&self.art).prepare(soon));
+            }
             let mut st = self.state.write().await;
             match res {
                 Ok(map) if !map.is_empty() => {

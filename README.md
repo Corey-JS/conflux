@@ -65,6 +65,7 @@ On a phone the app must be served over HTTPS to install; see
 | --- | --- |
 | `GET /api/search?q=star+trek&kind=live\|movie\|series&provider=pluto&limit=60` | `{ query, items: [Item], unavailable: [provider names] }` |
 | `GET /api/live?provider=pluto&limit=2000` | `{ items: [Item + programs], now }`: whole lineups by default, grouped by provider, each in channel order. A lower `limit` gives every provider a fair share instead of cutting off the later ones. |
+| `GET /api/art/<key>` | A 168×240 JPEG of a show's art, for providers whose art is full size (Plex). Keys come from `/api/live`; only images in the current guide can be fetched. Made ahead of time for what's on now and next, kept on disk (`CONFLUX_ART_DIR`), and cached by browsers for a week. |
 | `GET /api/providers` | Each provider's mode, item count, last success and last error |
 | `GET /healthz` | `ok` |
 
@@ -76,6 +77,7 @@ An `Item` is `{ id, provider, kind, title, description?, image?, genres, year?, 
 src/
   main.rs            server and `check` command
   api.rs             HTTP routes and static files
+  art.rs             shrunken copies of full-size show art
   catalog.rs         per-provider caches, refresh timer, merged search
   search.rs          text normalization and ranking
   model.rs           the shared Item type
