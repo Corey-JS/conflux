@@ -140,21 +140,34 @@ fn tubi_search_results() {
 #[test]
 fn roku_search_results() {
     let items = roku::parse_search(&fixture("roku_search.json"));
-    assert_eq!(items.len(), 2, "{items:?}");
+    let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        vec!["The Mask", "The Masked Singer"],
+        "paid-only (Paramount+, Roku Premium Subscriptions), trailers, \
+         no-view-option, duplicate and bad-id entries are all dropped"
+    );
     assert_eq!(
         items[0].watch_url,
-        "https://therokuchannel.roku.com/details/0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+        "https://app.roku.com/details/dfaed5480b2f5cc7a97d0eb514e790ce"
     );
     assert_eq!(items[0].year, Some(1994));
     assert_eq!(
         items[0].image.as_deref(),
-        Some("https://image.roku.com/grid/mask.jpg")
+        Some("https://images.sr.roku.com/grid/mask.jpg")
     );
+    assert_eq!(
+        items[0].description.as_deref(),
+        Some("Bank clerk Stanley Ipkiss is transformed into a manic superhero when he wears a mysterious mask."),
+        "longest description wins"
+    );
+    assert_eq!(items[0].genres, vec!["Comedy", "Action"]);
     assert_eq!(items[1].kind, Kind::Live);
     assert_eq!(
         items[1].watch_url,
-        "https://therokuchannel.roku.com/watch/ffeeddccbbaa99887766554433221100"
+        "https://app.roku.com/watch/34b686f999ecaacfbcd91bb5195c3124"
     );
+    assert_eq!(items[1].description, None, "empty descriptions map");
 }
 
 #[test]

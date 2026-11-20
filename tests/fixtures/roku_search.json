@@ -1,7 +1,11 @@
-{"view":[{"title":"Search results","content":[
-  {"title":"The Mask","type":"movie","meta":{"id":"0a1b2c3d4e5f60718293a4b5c6d7e8f9","mediaType":"movie"},"releaseYear":1994,"description":"Comedy.","imageMap":{"grid":{"path":"https://image.roku.com/grid/mask.jpg"}}},
-  {"title":"Roku Comedy Live","type":"linear","meta":{"id":"ffeeddccbbaa99887766554433221100"}},
+{"meta":{"id":"keywordsearch?tpl_keyword=the+mask","mediaType":"content"},"type":"content","title":"Search","view":[{"features":{},"content":[
+  {"title":"The Mask","type":"movie","meta":{"id":"dfaed5480b2f5cc7a97d0eb514e790ce","mediaType":"movie"},"releaseYear":1994,"descriptions":{"100":{"size":100,"text":"Bank clerk Stanley Ipkiss is transformed."},"250":{"size":250,"text":"Bank clerk Stanley Ipkiss is transformed into a manic superhero when he wears a mysterious mask."}},"genres":["comedy","action"],"imageMap":{"grid":{"path":"https://images.sr.roku.com/grid/mask.jpg","aspectRatio":"16:9"}},"viewOptions":[{"providerId":"rokuavod"},{"providerId":"vixplus","providerProductId":"newman-vixplus"}]},
+  {"title":"Star Trek IV: The Voyage Home","type":"movie","meta":{"id":"22a01253f9d25c2ea720b7f608b51b70","mediaType":"movie"},"releaseYear":1986,"viewOptions":[{"providerId":"paramountplus","providerProductId":"newman-paramountplus"}]},
+  {"title":"Son of the Mask","type":"movie","meta":{"id":"5a0b2b1d8f0e4c6a9b7d3e2f1a0c9b8d","mediaType":"movie"},"viewOptions":[{"providerId":"rokusvod","providerProductId":"newman-rokusvod"}]},
+  {"title":"The Masked Singer","type":"livefeed","meta":{"id":"34b686f999ecaacfbcd91bb5195c3124","mediaType":"livefeed"},"descriptions":{},"genres":["entertainment","music"],"viewOptions":[{"providerId":"rokuavod"}]},
+  {"title":"Trailer - The Mask","type":"shortformvideo","meta":{"id":"aa11bb22cc33dd44ee55ff6600112233","mediaType":"shortformvideo"},"viewOptions":[{"providerId":"rokuavod"}]},
   {"title":"Search results","type":"collection"},
-  {"title":"The Mask","type":"movie","meta":{"id":"0a1b2c3d4e5f60718293a4b5c6d7e8f9"}},
-  {"title":"Bad id","type":"movie","id":"../../etc"}
+  {"title":"The Mask","type":"movie","meta":{"id":"dfaed5480b2f5cc7a97d0eb514e790ce"},"viewOptions":[{"providerId":"rokuavod"}]},
+  {"title":"No view options","type":"movie","meta":{"id":"0123456789abcdef0123456789abcdef"}},
+  {"title":"Bad id","type":"movie","id":"../../etc","viewOptions":[{"providerId":"rokuavod"}]}
 ]}]}

@@ -38,12 +38,13 @@ working, and `/api/providers` shows which one failed and why.
 | Pluto TV | Live channels + on-demand library | Web app's boot token, then its guide and on-demand APIs; falls back to Pluto's older token-free channel list | Medium. Pluto changes app versions now and then. |
 | Plex | Live channels + on-demand search | Guest token (the same one plex.tv gives signed-out visitors, not an account), then its EPG and on-demand search | Medium |
 | Tubi | On-demand search (also live channels if they match) | Web app's search endpoint | Medium |
-| The Roku Channel | On-demand + live search | Web app's CSRF token, then search; response read leniently | **High.** Least certain endpoint; expect to fix after a first real run. US only. |
+| The Roku Channel | On-demand + live search | Web app's CSRF token, then search on `app.roku.com`; response read leniently; only items Roku marks free (`rokuavod`) are kept, because its search also returns Paramount+ and other paid channels | Medium. Checked against the live service in Nov 2026. US only. |
 | Samsung TV Plus | Live channels | Channel list mirrored by the open-source i.mjh.nz project | **Off by default.** Samsung's website reportedly closed and there's no iPhone app, so a tap has nowhere to go. |
 
-None of these were reachable from the machine this was built on, so the
-parsers are tested against hand-written samples of each response shape
-(`tests/fixtures/`). Run `conflux check` on the server to test the real ones.
+The parsers are tested against samples of each response shape
+(`tests/fixtures/`). Pluto and Roku were checked against the real services in
+Nov 2026 (`roku_search.json` is trimmed from a real response); the rest are
+still hand-written. Run `conflux check` on the server to test the real ones.
 
 ## Run it locally
 

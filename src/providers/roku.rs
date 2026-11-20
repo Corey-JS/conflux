@@ -1,9 +1,11 @@
-//! The Roku Channel: searched per query. EXPERIMENTAL.
+//! The Roku Channel: searched per query.
 //!
 //! The Roku Channel's web app gets a CSRF token, then searches with it. Its
 //! response shape is not documented, so the parser walks the JSON and picks
-//! out anything that looks like a titled movie, series or channel. This is
-//! the provider most likely to need a fix after a real run.
+//! out anything that looks like a titled movie, series or channel.
+//!
+//! Roku's search covers every channel on Roku, paid ones included, so each
+//! result is kept only if The Roku Channel itself offers it free.
 
 use std::collections::HashSet;
 
@@ -13,11 +15,19 @@ use reqwest::Client;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
-use super::json::{at, str_of, year_of};
+use super::json::{arr, at, str_of, strings, year_of};
 use super::{Provider, get_json};
 use crate::model::{Item, Kind, clean, is_web_url};
 
-const BASE: &str = "https://therokuchannel.roku.com";
+/// The web app moved here from therokuchannel.roku.com, which now answers
+/// with a 301. A redirected POST arrives as a GET with no body, so the old
+/// host can't be used for search.
+const BASE: &str = "https://app.roku.com";
+
+/// The view option that means "free with ads on The Roku Channel". Others
+/// are paid: "rokusvod" (Roku's Premium Subscriptions), "paramountplus",
+/// "shudder" and so on.
+const FREE_PROVIDER: &str = "rokuavod";
 
 pub struct Roku {
     csrf: Mutex<Option<String>>,
@@ -120,11 +130,15 @@ fn content_item(o: &Value) -> Option<Item> {
             .map(str::to_string)
     })?;
     let kind = match kind_str.to_ascii_lowercase().as_str() {
-        "movie" | "shortformvideo" | "tvspecial" => Kind::Movie,
+        "movie" | "tvspecial" => Kind::Movie,
         "series" | "tvseries" | "show" => Kind::Series,
         "linear" | "livefeed" | "live" | "channel" => Kind::Live,
+        // "shortformvideo" is trailers and clips; episodes, people, etc.
         _ => return None,
     };
+    if !is_free(o) {
+        return None;
+    }
     let id = at(o, &["meta", "id"])
         .and_then(Value::as_str)
         .map(str::to_string)
@@ -142,12 +156,48 @@ fn content_item(o: &Value) -> Option<Item> {
         format!("{BASE}/details/{id}")
     };
     let mut item = Item::new("roku", &id, kind, &title, url);
-    item.description = clean(str_of(o, &["description", "shortDescription"]));
+    item.description = description(o);
     item.year = year_of(o, &["releaseYear", "year"]);
     item.image = ["imageMap", "images", "image"]
         .iter()
         .find_map(|k| o.get(k).and_then(find_image));
+    // Roku sends genres in lowercase ("comedy").
+    item.genres = strings(o.get("genres"))
+        .iter()
+        .take(3)
+        .map(|g| capitalize(g))
+        .collect();
     Some(item)
+}
+
+/// `viewOptions: [ { providerId: "rokuavod" }, { providerId: "paramountplus", … } ]`
+fn is_free(o: &Value) -> bool {
+    arr(o, &["viewOptions"])
+        .iter()
+        .any(|v| v.get("providerId").and_then(Value::as_str) == Some(FREE_PROVIDER))
+}
+
+/// `descriptions: { "100": { size, text }, "250": { … } }`; the longest wins.
+fn description(o: &Value) -> Option<String> {
+    let longest = o
+        .get("descriptions")
+        .and_then(Value::as_object)
+        .and_then(|sizes| {
+            sizes
+                .values()
+                .filter_map(|d| d.get("text").and_then(Value::as_str))
+                .max_by_key(|t| t.len())
+                .map(str::to_string)
+        });
+    clean(longest.or_else(|| str_of(o, &["description", "shortDescription"])))
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 fn find_image(v: &Value) -> Option<String> {
