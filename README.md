@@ -24,9 +24,9 @@ There are two kinds of provider:
 - **Catalog** providers have lists small enough to download whole: live
   channel lineups and Pluto's on-demand library. The server refreshes them
   hourly and searches them in memory.
-- **Search** providers have libraries far too big to download (Plex's
-  on-demand library, The Roku Channel), so the server forwards each query
-  to them and caches the answer for 15 minutes.
+- **Search** providers have libraries far too big to download (The Roku
+  Channel's on-demand library), so the server forwards each query to them
+  and caches the answer for 15 minutes.
 
 Every provider sits in its own module. If one breaks, the others keep
 working, and `/api/providers` shows which one failed and why.
@@ -36,15 +36,15 @@ working, and `/api/providers` shows which one failed and why.
 | Provider | What Conflux gets | How | Fragility |
 | --- | --- | --- | --- |
 | Pluto TV | Live channels + on-demand library | Web app's boot token, then its guide and on-demand APIs; falls back to Pluto's older token-free channel list | Medium. Pluto changes app versions now and then. |
-| Plex | Live channels + on-demand search | Guest token (the same one plex.tv gives signed-out visitors, not an account), then its EPG and on-demand search | Medium |
+| Plex | Live channels + schedules | Channel list and schedules mirrored by the open-source i.mjh.nz project; each channel's link and genre from Plex's public live TV page. No Plex token. | Medium. Since Nov 2026 plex.tv gives signed-out guest tokens only to Plex's own apps, so on-demand search is gone. `CONFLUX_PLEX_REGION` picks the region (default `us`). |
 | Tubi | On-demand search (also live channels if they match) | Web app's old `/oz/search` endpoint | **Off by default (Nov 2026).** The endpoint now answers 401. Tubi's web app moved to a search service whose signed-out token needs a request signature only Tubi's own client is meant to produce. The module and its parser are kept; add `tubi` to `CONFLUX_PROVIDERS` to try it. |
 | The Roku Channel | On-demand + live search | Web app's CSRF token, then search on `app.roku.com`; response read leniently; only items Roku marks free (`rokuavod`) are kept, because its search also returns Paramount+ and other paid channels | Medium. Checked against the live service in Nov 2026. US only. |
 | Samsung TV Plus | Live channels | Channel list mirrored by the open-source i.mjh.nz project | **Off by default.** Samsung's website reportedly closed and there's no iPhone app, so a tap has nowhere to go. |
 
 The parsers are tested against samples of each response shape
-(`tests/fixtures/`). Pluto and Roku were checked against the real services in
-Nov 2026 (`roku_search.json` is trimmed from a real response); the rest are
-still hand-written. Run `conflux check` on the server to test the real ones.
+(`tests/fixtures/`). Pluto, Plex and Roku were checked against the real
+services in Nov 2026 (the Plex and Roku samples are trimmed from real
+responses); the rest are still hand-written. Run `conflux check` on the server to test the real ones.
 
 ## Run it locally
 

@@ -1,12 +1,16 @@
-//! Each provider's parser against a hand-written sample of its JSON.
+//! Each provider's parser against a sample of its responses.
 
 use conflux::model::Kind;
 use conflux::providers::{plex, pluto, roku, samsung, tubi};
 use serde_json::Value;
 
-fn fixture(name: &str) -> Value {
+fn text_fixture(name: &str) -> String {
     let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+    std::fs::read_to_string(path).unwrap()
+}
+
+fn fixture(name: &str) -> Value {
+    serde_json::from_str(&text_fixture(name)).unwrap()
 }
 
 #[test]
@@ -72,46 +76,81 @@ fn pluto_legacy_fallback() {
 }
 
 #[test]
-fn plex_live_channels() {
-    let items = plex::parse_live(&fixture("plex_live.json"));
-    assert_eq!(items.len(), 2);
+fn plex_channels_from_mirror_with_links_from_page() {
+    let mirror = fixture("plex_mirror.json");
+    let page = plex::parse_page(&text_fixture("plex_live_tv.html"));
+    let items = plex::build(Some(&mirror), &page, "us");
+    let mut titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+    titles.sort();
     assert_eq!(
-        items[0].watch_url,
-        "https://watch.plex.tv/live-tv/channel/plex-movie-picks"
+        titles,
+        vec!["A&E Alaska State Troopers", "CW Forever", "WSOC Channel 9"],
+        "other regions left out; page-only channels aren't added when the mirror works"
     );
-    assert_eq!(items[0].genres, vec!["Movies"]);
+    let by = |t: &str| items.iter().find(|i| i.title == t).unwrap();
+
+    let cw = by("CW Forever");
+    assert_eq!(cw.id, "plex:live:6a1610bebdf296985fd95603-66635fc0ca7b22f4c3a2d743");
+    assert_eq!(cw.kind, Kind::Live);
+    assert_eq!(cw.watch_url, "https://watch.plex.tv/live-tv/channel/cw-forever");
+    assert_eq!(cw.genres, vec!["Bingeworthy"], "a later non-genre row doesn't clear it");
+    assert!(cw.image.as_deref().unwrap().ends_with("PLEX_CWFOREVER_UPDATEDLOGO_RDX.png"));
+
+    let ae = by("A&E Alaska State Troopers");
     assert_eq!(
-        items[1].watch_url,
-        "https://watch.plex.tv/live-tv/channel/weather-now"
+        ae.watch_url,
+        "https://watch.plex.tv/live-tv/channel/aande-alaska-state-troopers",
+        "the page's slug, not one guessed from the name"
     );
-    assert_eq!(items[1].image, None, "relative image urls are dropped");
-    assert_eq!(items[1].genres, vec!["News"]);
+    assert_eq!(ae.genres, vec!["Food, Home & Culture"]);
+
+    let local = by("WSOC Channel 9");
+    assert_eq!(
+        local.watch_url, "https://watch.plex.tv/live-tv",
+        "not on the page: link to the guide rather than guess"
+    );
+    assert!(local.genres.is_empty());
 }
 
 #[test]
-fn plex_on_demand_search() {
-    let items = plex::parse_vod_hubs(&fixture("plex_vod_hubs.json"));
-    assert_eq!(items.len(), 2, "episodes skipped");
-    assert_eq!(
-        items[0].watch_url,
-        "https://watch.plex.tv/movie/star-trek-nemesis"
-    );
-    assert_eq!(items[0].year, Some(2002));
-    assert_eq!(items[0].genres, vec!["Science Fiction"]);
-    assert_eq!(items[1].kind, Kind::Series);
-    assert_eq!(
-        items[1].watch_url,
-        "https://watch.plex.tv/show/star-trek-enterprise"
-    );
-    assert_eq!(items[1].year, Some(2001));
-    assert_eq!(
-        items[1].image.as_deref(),
-        Some("https://metadata-static.plex.tv/e/poster.jpg")
-    );
+fn plex_page_alone_when_mirror_is_down() {
+    let page = plex::parse_page(&text_fixture("plex_live_tv.html"));
+    assert_eq!(page.len(), 3, "bad ids skipped, repeats merged: {page:?}");
+    let items = plex::build(None, &page, "us");
+    let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+    assert_eq!(titles, vec!["CW Forever", "A&E Alaska State Troopers", "No Reservations"]);
+    assert_eq!(items[2].watch_url, "https://watch.plex.tv/live-tv/channel/no-reservations");
+    assert_eq!(items[2].genres, vec!["Food, Home & Culture"]);
+    assert!(items[2].image.as_deref().unwrap().starts_with("https://provider-static.plex.tv/"));
+}
 
-    let d = plex::parse_discover(&fixture("plex_discover.json"));
-    assert_eq!(d.len(), 1);
-    assert_eq!(d[0].watch_url, "https://watch.plex.tv/movie/the-mask");
+#[test]
+fn plex_schedules_from_mirror() {
+    let mirror = fixture("plex_mirror.json");
+    let map = plex::parse_programs(&mirror, "us");
+    let cw = &map["plex:live:6a1610bebdf296985fd95603-66635fc0ca7b22f4c3a2d743"];
+    let slots: Vec<(u64, u64)> = cw.iter().map(|p| (p.start, p.stop)).collect();
+    assert_eq!(
+        slots,
+        vec![
+            (1795165969, 1795169033),
+            (1795169033, 1795172116),
+            (1795172116, 1795175205)
+        ],
+        "sorted, repeats merged, each ends when the next starts, the open-ended last one dropped"
+    );
+    assert_eq!(cw[0].title, "Lost Girl");
+
+    let ae = &map["plex:live:6a1610bebdf296985fd95603-6a024c8e981d28c38fb16f21"];
+    assert_eq!(ae.len(), 1, "untitled slot skipped");
+    assert_eq!((ae[0].start, ae[0].stop), (1795164089, 1795167461));
+
+    assert!(
+        !map.contains_key("plex:live:6a1610bebdf296985fd95603-61f9a6aec68d91e31d4cc86e"),
+        "one slot has no end, so no schedule"
+    );
+    assert_eq!(map.len(), 2, "other regions left out");
+    assert_eq!(plex::parse_programs(&mirror, "gb").len(), 1);
 }
 
 #[test]

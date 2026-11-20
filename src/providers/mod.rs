@@ -12,6 +12,7 @@ use reqwest::Client;
 use crate::model::{Item, Program};
 
 pub mod json;
+pub mod mjh;
 pub mod plex;
 pub mod pluto;
 pub mod roku;
@@ -45,7 +46,7 @@ pub trait Provider: Send + Sync {
     }
 
     /// True if this provider is searched live, per query, because its
-    /// library is too big to download (Tubi, Plex on demand, Roku).
+    /// library is too big to download (Roku, Tubi).
     fn has_search(&self) -> bool {
         false
     }

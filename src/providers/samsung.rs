@@ -10,9 +10,8 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::Value;
-use std::io::Read;
 
-use super::Provider;
+use super::{Provider, mjh};
 use super::json::{at, str_of, u32_of};
 use crate::model::{Item, Kind, clean, is_web_url};
 
@@ -42,21 +41,10 @@ impl Provider for Samsung {
         true
     }
     async fn catalog(&self, http: &Client) -> Result<Vec<Item>> {
-        let resp = http.get(LIST_URL).send().await?.error_for_status()?;
-        let bytes = resp.bytes().await?;
-        let v = decode(&bytes).context("Samsung channel list")?;
+        let v = mjh::fetch(http, LIST_URL)
+            .await
+            .context("Samsung channel list")?;
         Ok(parse_channels(&v, &self.region))
-    }
-}
-
-/// The file is gzip; some servers already undo that for us.
-fn decode(bytes: &[u8]) -> Result<Value> {
-    if bytes.starts_with(&[0x1f, 0x8b]) {
-        let mut s = String::new();
-        flate2::read::GzDecoder::new(bytes).read_to_string(&mut s)?;
-        Ok(serde_json::from_str(&s)?)
-    } else {
-        Ok(serde_json::from_slice(bytes)?)
     }
 }
 

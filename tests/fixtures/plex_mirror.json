@@ -1,0 +1,11 @@
+{"regions":{"us":{"name":"USA"},"gb":{"name":"United Kingdom"}},
+ "channels":{
+  "6a1610bebdf296985fd95603-66635fc0ca7b22f4c3a2d743":{"name":"CW Forever","logo":"https://provider-static.plex.tv/epg/cms/production/f9418a5d-f191-4b8a-bf3a-2eda3d2cd137/PLEX_CWFOREVER_UPDATEDLOGO_RDX.png","regions":["us"],
+   "programs":[[1795172116,"Lost Girl"],[1795165969,"Lost Girl"],[1795169033,"Lost Girl"],[1795169033,"Lost Girl"],[1795175205,"7th Heaven"]]},
+  "6a1610bebdf296985fd95603-6a024c8e981d28c38fb16f21":{"name":"A&E Alaska State Troopers","logo":"https://provider-static.plex.tv/epg/cms/production/4269e6c2-6949-4acb-a767-dae9faff021f/AlaskaStateTroopers_channel_logo_white_1500x1000.png","regions":["us"],
+   "programs":[[1795164089,"Alaska State Troopers"],[1795167461,""],[1795170750,"Alaska State Troopers"]]},
+  "6a1610bebdf296985fd95603-61f9a6aec68d91e31d4cc86e":{"name":"WSOC Channel 9","logo":"https://provider-static.plex.tv/epg/cms/production/4bca5094-21a4-4a04-9616-427bcb2f06f7/WSOC_-_Channel_Logo_-_Dark_-_Matthew_Dominguez.png","regions":["us"],
+   "programs":[[1795165200,"National News Now"]]},
+  "64305451fc3be5947773c339-68dcbb869beaa3a402966dba":{"name":"The Graham Norton Show","logo":"https://provider-static.plex.tv/epg/cms/production/f4b4443f-36c5-4bc2-b361-01358026113a/GrahamNorton_Logo_Colour_1500X1000.png","regions":["gb"],
+   "programs":[[1795164625,"The Graham Norton Show"],[1795167044,"The Graham Norton Show"]]}
+ }}
