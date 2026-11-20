@@ -9,6 +9,11 @@ WorkingDirectory=/opt/conflux
 Environment=CONFLUX_BIND=127.0.0.1:8080
 Environment=CONFLUX_WEB_DIR=/opt/conflux/web
 Environment=RUST_LOG=conflux=info,warn
+# glibc's default allocator keeps freed memory: decoding full-size show art
+# and re-downloading catalogs took Conflux past 1.2 GB, still climbing, in a
+# test. Handing blocks over 128 KB back to the system and keeping two memory
+# pools holds it near 450 MB at the same speed.
+Environment=GLIBC_TUNABLES=glibc.malloc.mmap_threshold=131072:glibc.malloc.arena_max=2
 # Optional: CONFLUX_PROVIDERS=pluto,plex,tubi,roku,samsung and CONFLUX_REFRESH_MINUTES=60
 EnvironmentFile=-/etc/conflux.env
 Restart=always
@@ -29,7 +34,7 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 CacheDirectory=conflux
 
 # No memory cap: with Pluto, Plex and Roku loaded, Conflux levels off around
-# 700 MB after a few refreshes.
+# 450 MB (with GLIBC_TUNABLES above).
 # On a small VM shared with other apps, set MemoryMax= in a drop-in instead.
 
 [Install]
