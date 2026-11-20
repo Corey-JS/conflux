@@ -201,6 +201,8 @@ main {
 
 /* TV guide rows */
 .results li.guide { border-bottom: 1px solid var(--line); }
+/* Marks the end of the rows built so far; the next batch is added as it nears the screen. */
+.results li.guide-end { height: 1px; }
 .g-main {
   display: grid;
   grid-template-columns: 56px 1fr auto;

@@ -128,40 +128,91 @@ function guideRow(item, t) {
     svg("M7 17L17 7M9 7h8v8"));
   const open = expanded.has(item.id);
   const main = el("div", { class: "g-main", role: "button", tabindex: "0", "aria-expanded": String(open) }, thumb, info, watch);
+  const li = el("li", { class: "guide" }, main);
 
-  const sched = el("ol", { class: "g-sched" }, ...progs.map((p) =>
-    el("li", {}, el("time", {}, clock(p.start)),
-      el("div", {}, el("b", {}, p.title), p.subtitle ? el("span", {}, " · " + p.subtitle) : null,
-        p.description ? el("p", {}, p.description) : null))));
-  sched.hidden = !open;
+  // Most rows are never opened, so the full schedule is built on first open.
+  let sched = null;
+  const show = (o) => {
+    if (o && !sched) li.append(sched = schedList(progs));
+    if (sched) sched.hidden = !o;
+  };
+  show(open);
 
   const toggle = () => {
     const o = main.getAttribute("aria-expanded") !== "true";
     main.setAttribute("aria-expanded", String(o));
-    sched.hidden = !o;
+    show(o);
     if (o) expanded.add(item.id); else expanded.delete(item.id);
   };
   main.addEventListener("click", (e) => { if (!e.target.closest("a")) toggle(); });
   main.addEventListener("keydown", (e) => {
     if ((e.key === "Enter" || e.key === " ") && e.target === main) { e.preventDefault(); toggle(); }
   });
-  return { li: el("li", { class: "guide" }, main, sched), bar, start: now.start, stop: now.stop };
+  return { li, bar, start: now.start, stop: now.stop };
 }
 
+function schedList(progs) {
+  return el("ol", { class: "g-sched" }, ...progs.map((p) =>
+    el("li", {}, el("time", {}, clock(p.start)),
+      el("div", {}, el("b", {}, p.title), p.subtitle ? el("span", {}, " · " + p.subtitle) : null,
+        p.description ? el("p", {}, p.description) : null))));
+}
+
+// The guide has 1,400+ channels; building them all at once froze phones for
+// a moment on every refresh. Rows are built a batch at a time, and the next
+// batch is added when the end of the list comes within a few screens.
+const GUIDE_BATCH = 50;
+let guideNext = 0; // index in live.items of the next row to build
+let guideFor = null; // the provider filter the guide was drawn for
+const guideEnd = el("li", { class: "guide-end", "aria-hidden": "true" });
+const guideMore = "IntersectionObserver" in window
+  ? new IntersectionObserver((entries) => {
+    if (view === "guide" && entries.some((e) => e.isIntersecting)) appendGuideRows(GUIDE_BATCH);
+  }, { rootMargin: "0px 0px 2000px 0px" })
+  : null;
+
 function renderGuide() {
-  const t = serverNow() / 1000;
+  // A refresh of the same list rebuilds as many rows as were showing, so
+  // the scroll position holds. A different filter starts from the top batch.
+  const keep = view === "guide" && guideFor === state.provider ? guideRows.length : 0;
+  guideFor = state.provider;
   guideRows = [];
-  for (const item of live.items) {
-    const r = guideRow(item, t);
-    if (r.li) guideRows.push({ item, key: guideKey(item, t), ...r });
-  }
-  els.results.replaceChildren(...guideRows.map((r) => r.li));
+  guideNext = 0;
+  // Rows added while scrolling, or rebuilt as shows change, aren't news to
+  // announce; search results are.
+  els.results.setAttribute("aria-live", "off");
+  els.results.replaceChildren();
   view = "guide";
+  // The header stays on screen, so a filter can change from deep in the
+  // list; the new list starts at its top.
+  if (!keep) window.scrollTo(0, 0);
+  appendGuideRows(Math.max(GUIDE_BATCH, keep));
   if (!live.items.length) note("No live channels loaded yet. Try again in a minute.");
 }
 
+function appendGuideRows(n) {
+  const t = serverNow() / 1000;
+  const lis = [];
+  while (lis.length < n && guideNext < live.items.length) {
+    const item = live.items[guideNext++];
+    const r = guideRow(item, t);
+    if (!r.li) continue;
+    guideRows.push({ item, key: guideKey(item, t), ...r });
+    lis.push(r.li);
+  }
+  guideEnd.remove();
+  els.results.append(...lis);
+  if (guideNext >= live.items.length) return;
+  if (!guideMore) { appendGuideRows(Infinity); return; }
+  els.results.append(guideEnd);
+  // Watching afresh always reports once, so a batch too short to push the
+  // end out of range is followed by another.
+  guideMore.unobserve(guideEnd);
+  guideMore.observe(guideEnd);
+}
+
 // Move progress bars, and rebuild only the rows whose show has changed.
-// Rebuilding all 1,000+ rows every 30s would drop focus and redo every image.
+// Rebuilding every row every 30s would drop focus and redo every image.
 function tickGuide() {
   const t = serverNow() / 1000;
   for (const r of guideRows) {
@@ -195,6 +246,7 @@ function note(text) {
 }
 
 function render(items, emptyText) {
+  els.results.setAttribute("aria-live", "polite");
   els.results.replaceChildren(...items.map(row).filter(Boolean));
   view = "results";
   if (!items.length) note(emptyText);
