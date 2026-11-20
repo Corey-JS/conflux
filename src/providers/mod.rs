@@ -56,9 +56,13 @@ pub trait Provider: Send + Sync {
 
 pub const ALL_IDS: &[&str] = &["pluto", "plex", "tubi", "roku", "samsung"];
 
-/// Samsung TV Plus is off unless asked for: its website reportedly closed and
-/// it has no iPhone app, so there is nowhere on a phone to send a tap.
-pub const DEFAULT_IDS: &[&str] = &["pluto", "plex", "tubi", "roku"];
+/// Off unless asked for:
+/// - Tubi: its old search endpoint answers 401 (Nov 2026), and the service
+///   that replaced it only takes requests signed the way Tubi's own client
+///   signs them, so every search would just report Tubi as unavailable.
+/// - Samsung TV Plus: its website reportedly closed and it has no iPhone app,
+///   so there is nowhere on a phone to send a tap.
+pub const DEFAULT_IDS: &[&str] = &["pluto", "plex", "roku"];
 
 pub fn build(ids: &[String]) -> Vec<Arc<dyn Provider>> {
     let mut out: Vec<Arc<dyn Provider>> = Vec::new();
@@ -111,4 +115,19 @@ pub async fn get_json(req: reqwest::RequestBuilder) -> Result<serde_json::Value>
             url.path()
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_are_known_and_skip_the_off_providers() {
+        let ids: Vec<String> = DEFAULT_IDS.iter().map(|s| s.to_string()).collect();
+        assert_eq!(build(&ids).len(), DEFAULT_IDS.len(), "every default builds");
+        assert!(DEFAULT_IDS.iter().all(|id| ALL_IDS.contains(id)));
+        assert!(!DEFAULT_IDS.contains(&"tubi"), "Tubi search answers 401");
+        assert!(!DEFAULT_IDS.contains(&"samsung"), "no iPhone app to send taps to");
+        assert_eq!(build(&["tubi".into()]).len(), 1, "Tubi can still be turned on");
+    }
 }

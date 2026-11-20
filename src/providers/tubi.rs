@@ -1,7 +1,14 @@
 //! Tubi: searched per query (the library is far too big to download).
+//! OFF BY DEFAULT.
 //!
-//! Uses the search endpoint Tubi's web app calls. Results carry a type
+//! Uses the search endpoint Tubi's web app used to call. Results carry a type
 //! letter: "v" video/movie, "s" series, "l" live/linear channel.
+//!
+//! Since Nov 2026 this endpoint answers 401. Tubi's web app now searches
+//! through a service whose signed-out token needs a request signature only
+//! Tubi's own client is meant to produce, so this module is kept (with its
+//! parser and tests) for the day Tubi offers an open route again, but isn't
+//! in `DEFAULT_IDS`. Set `CONFLUX_PROVIDERS=...,tubi` to try it.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;

@@ -85,7 +85,7 @@ Put any of these in `/etc/conflux.env` and run `sudo systemctl restart conflux`:
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| `CONFLUX_PROVIDERS` | `pluto,plex,tubi,roku` | Which providers to use. Add `samsung` to turn Samsung TV Plus on. |
+| `CONFLUX_PROVIDERS` | `pluto,plex,roku` | Which providers to use. Add `samsung` to turn Samsung TV Plus on. `tubi` can be added too, but its search has answered 401 since Nov 2026. |
 | `CONFLUX_REFRESH_MINUTES` | `60` | How often to re-download the channel and catalog lists. |
 | `CONFLUX_SAMSUNG_REGION` | `us` | Samsung TV Plus region code. |
 | `RUST_LOG` | `conflux=info,warn` | Log detail (`conflux=debug` for more). |
