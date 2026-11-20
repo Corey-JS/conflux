@@ -24,7 +24,7 @@ use anyhow::{Result, bail};
 use axum::body::Bytes;
 use futures::StreamExt;
 use image::imageops::FilterType;
-use image::{ImageReader, Limits};
+use image::{DynamicImage, ImageReader, Limits};
 use reqwest::{Client, redirect};
 use tokio::sync::{Mutex, RwLock, Semaphore};
 
@@ -60,6 +60,8 @@ pub struct Art {
     sources: RwLock<HashMap<String, HashMap<u64, String>>>,
     cache: Mutex<Cache>,
     gate: Semaphore,
+    /// Keys waiting to be made ahead of time, and whether a run is going.
+    queued: Mutex<Vec<u64>>,
     preparing: AtomicBool,
     pruned_at: Mutex<Option<Instant>>,
 }
@@ -132,6 +134,7 @@ impl Art {
             sources: RwLock::new(HashMap::new()),
             cache: Mutex::new(Cache::default()),
             gate: Semaphore::new(AT_ONCE),
+            queued: Mutex::new(Vec::new()),
             preparing: AtomicBool::new(false),
             pruned_at: Mutex::new(None),
         }
@@ -185,18 +188,43 @@ impl Art {
     }
 
     /// Make thumbnails for `keys` ahead of time, a few at once, so the art is
-    /// ready before anyone opens the guide. If a run is still going, this
-    /// one is skipped; the next guide refresh catches up.
+    /// ready before anyone opens the guide. Providers refresh their guides at
+    /// the same moment, so if a run is already going the keys are queued for
+    /// it rather than starting a second one.
     pub async fn prepare(self: Arc<Self>, keys: Vec<u64>) {
-        if self.preparing.swap(true, Ordering::AcqRel) {
-            return;
+        self.queued.lock().await.extend(keys);
+        loop {
+            if self.preparing.swap(true, Ordering::AcqRel) {
+                return; // the run that's going takes these too
+            }
+            self.prune().await;
+            loop {
+                let batch = {
+                    let mut q = self.queued.lock().await;
+                    q.sort_unstable();
+                    q.dedup();
+                    std::mem::take(&mut *q)
+                };
+                if batch.is_empty() {
+                    break;
+                }
+                self.make_ahead(batch).await;
+            }
+            self.preparing.store(false, Ordering::Release);
+            // Keys queued after the last batch was taken but before the run
+            // ended would otherwise wait for the next refresh.
+            if self.queued.lock().await.is_empty() {
+                return;
+            }
         }
-        self.prune().await;
+    }
+
+    async fn make_ahead(self: &Arc<Self>, keys: Vec<u64>) {
         let started = Instant::now();
         let total = keys.len();
         let ready = futures::stream::iter(keys)
             .map(|k| {
-                let me = Arc::clone(&self);
+                let me = Arc::clone(self);
                 async move { me.thumb(k).await.is_some() }
             })
             .buffer_unordered(AHEAD_AT_ONCE)
@@ -207,7 +235,6 @@ impl Art {
             "art: {ready} of {total} thumbnails for now and next ready ({:.0?})",
             started.elapsed()
         );
-        self.preparing.store(false, Ordering::Release);
     }
 
     /// The shrunken image for `key` (16 hex digits), made on first request.
@@ -358,10 +385,17 @@ pub fn fetchable(url: &str) -> bool {
         })
 }
 
-/// FNV-1a: stable across restarts and Rust versions, so browsers can keep
-/// their cached copies.
+/// How `shrink` draws thumbnails. Part of every key, so changing it gives
+/// thumbnails new addresses and browsers and the disk cache drop the old ones.
+const STYLE: &str = "fit-wide-over-blur-1";
+
+/// FNV-1a of `STYLE` and the URL: stable across restarts and Rust versions,
+/// so browsers can keep their cached copies.
 pub fn key_of(url: &str) -> u64 {
-    url.bytes()
+    STYLE
+        .bytes()
+        .chain(*b"\n")
+        .chain(url.bytes())
         .fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
 }
 
@@ -376,8 +410,11 @@ fn parse_key(s: &str) -> Option<u64> {
     u64::from_str_radix(s, 16).ok()
 }
 
-/// Decode an image and crop it to fill WIDTH×HEIGHT, as the guide's
-/// `object-fit: cover` would, as a JPEG.
+/// Decode an image and make a WIDTH×HEIGHT JPEG of it. Tall images are
+/// cropped to fill, as the guide's `object-fit: cover` would. Wide ones (most
+/// of Roku's art is 16:9) would lose their sides and titles that way, so the
+/// whole image is shown across the middle, over a blurred, darkened fill of
+/// itself.
 pub fn shrink(bytes: &[u8]) -> Result<Vec<u8>> {
     let mut reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let mut limits = Limits::default();
@@ -387,18 +424,41 @@ pub fn shrink(bytes: &[u8]) -> Result<Vec<u8>> {
     reader.limits(limits);
     let img = reader.decode()?;
     let (w, h) = (img.width().max(1), img.height().max(1));
-    let scale = (f64::from(WIDTH) / f64::from(w)).max(f64::from(HEIGHT) / f64::from(h));
-    let sw = ((f64::from(w) * scale).round() as u32).max(WIDTH);
-    let sh = ((f64::from(h) * scale).round() as u32).max(HEIGHT);
-    let img = if scale < 1.0 {
-        img.thumbnail_exact(sw, sh)
+    let img = if w > h {
+        let fit_h = ((f64::from(h) * f64::from(WIDTH) / f64::from(w)).round() as u32).clamp(1, HEIGHT);
+        let front = scale(&img, WIDTH, fit_h).to_rgb8();
+        // Blurring the small front image is cheap; the fill only needs colour.
+        let mut back = cover(&DynamicImage::ImageRgb8(front.clone()), WIDTH, HEIGHT).to_rgb8();
+        back = image::imageops::fast_blur(&back, 12.0);
+        for px in back.pixels_mut() {
+            px.0 = px.0.map(|c| (u16::from(c) * 3 / 5) as u8);
+        }
+        image::imageops::overlay(&mut back, &front, 0, i64::from((HEIGHT - fit_h) / 2));
+        back
     } else {
-        img.resize_exact(sw, sh, FilterType::Triangle)
+        cover(&img, WIDTH, HEIGHT).to_rgb8()
     };
-    let img = img.crop_imm((sw - WIDTH) / 2, (sh - HEIGHT) / 2, WIDTH, HEIGHT).to_rgb8();
     let mut out = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 80).encode_image(&img)?;
     Ok(out)
+}
+
+/// `img` scaled to fill `w`×`h` and cropped to it, centred.
+fn cover(img: &DynamicImage, w: u32, h: u32) -> DynamicImage {
+    let (iw, ih) = (img.width().max(1), img.height().max(1));
+    let k = (f64::from(w) / f64::from(iw)).max(f64::from(h) / f64::from(ih));
+    let sw = ((f64::from(iw) * k).round() as u32).max(w);
+    let sh = ((f64::from(ih) * k).round() as u32).max(h);
+    scale(img, sw, sh).crop_imm((sw - w) / 2, (sh - h) / 2, w, h)
+}
+
+/// Shrinking uses the fast thumbnail filter; growing smooths.
+fn scale(img: &DynamicImage, w: u32, h: u32) -> DynamicImage {
+    if w < img.width() || h < img.height() {
+        img.thumbnail_exact(w, h)
+    } else {
+        img.resize_exact(w, h, FilterType::Triangle)
+    }
 }
 
 #[cfg(test)]
@@ -478,6 +538,27 @@ mod tests {
         assert!(shrink(b"<html>not an image</html>").is_err());
     }
 
+    #[test]
+    fn wide_images_are_shown_whole_over_a_blur() {
+        // Blue, with a green stripe down the left edge that a crop would cut off.
+        let img = image::RgbImage::from_fn(1920, 1080, |x, _| {
+            if x < 96 { image::Rgb([0, 200, 0]) } else { image::Rgb([0, 0, 200]) }
+        });
+        let mut src = Vec::new();
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut Cursor::new(&mut src), image::ImageFormat::Png)
+            .unwrap();
+        let thumb = image::load_from_memory(&shrink(&src).unwrap()).unwrap().to_rgb8();
+        assert_eq!(thumb.dimensions(), (WIDTH, HEIGHT));
+        let [r, g, b] = thumb.get_pixel(2, HEIGHT / 2).0;
+        assert!(g > 150 && r < 60 && b < 60, "left edge of the middle: {r},{g},{b}");
+        let [_, _, b] = thumb.get_pixel(WIDTH - 3, HEIGHT / 2).0;
+        assert!(b > 150, "right edge of the middle is blue");
+        // Above and below the picture is the darker fill.
+        let [r, g, b] = thumb.get_pixel(WIDTH / 2, 4).0;
+        assert!(r.max(g).max(b) < 150, "fill is darkened: {r},{g},{b}");
+    }
+
     #[tokio::test]
     async fn makes_now_and_next_ahead_of_time() {
         let art = Art::new(None);
@@ -490,6 +571,27 @@ mod tests {
         let mut want = vec![key_of(&url(1)), key_of(&url(2))];
         want.sort_unstable();
         assert_eq!(soon, want, "not the past one, not the third");
+    }
+
+    #[tokio::test]
+    async fn a_second_provider_is_queued_not_skipped() {
+        let dir = scratch("queue");
+        let art = Arc::new(Art::new(Some(dir.clone())));
+        let (a, b) = (key_of("https://example.com/a.jpg"), key_of("https://example.com/b.jpg"));
+        // Saved thumbnails, so making them is just a read from disk.
+        art.keep(a, Bytes::from_static(b"a")).await;
+        art.keep(b, Bytes::from_static(b"b")).await;
+        art.cache.lock().await.done.clear();
+        art.preparing.store(true, Ordering::Release); // as if Plex's run were going
+        Arc::clone(&art).prepare(vec![b]).await; // Roku's keys wait in the queue
+        assert_eq!(*art.queued.lock().await, [b]);
+        art.preparing.store(false, Ordering::Release);
+        Arc::clone(&art).prepare(vec![a]).await;
+        let c = art.cache.lock().await;
+        assert!(c.done.contains_key(&a) && c.done.contains_key(&b), "both made");
+        drop(c);
+        assert!(art.queued.lock().await.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     fn scratch(name: &str) -> PathBuf {
