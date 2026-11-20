@@ -64,7 +64,7 @@ On a phone the app must be served over HTTPS to install; see
 | Endpoint | Returns |
 | --- | --- |
 | `GET /api/search?q=star+trek&kind=live\|movie\|series&provider=pluto&limit=60` | `{ query, items: [Item], unavailable: [provider names] }` |
-| `GET /api/live?provider=pluto` | `{ items: [Item] }`, live channels in channel order |
+| `GET /api/live?provider=pluto&limit=2000` | `{ items: [Item + programs], now }`: whole lineups by default, grouped by provider, each in channel order. A lower `limit` gives every provider a fair share instead of cutting off the later ones. |
 | `GET /api/providers` | Each provider's mode, item count, last success and last error |
 | `GET /healthz` | `ok` |
 

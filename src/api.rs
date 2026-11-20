@@ -18,6 +18,7 @@ use crate::catalog::{Filter, Store};
 use crate::model::Kind;
 
 const MAX_QUERY_LEN: usize = 100;
+const MAX_LIVE: usize = 2000;
 
 #[derive(Deserialize, Default)]
 pub struct Params {
@@ -70,9 +71,10 @@ async fn live(State(store): State<Arc<Store>>, Query(p): Query<Params>) -> Respo
         Ok(f) => f,
         Err(r) => return r,
     };
-    let limit = p.limit.unwrap_or(400).clamp(1, 2000);
-    let mut items = store.live_guide(&f).await;
-    items.truncate(limit);
+    // Whole lineups by default: Pluto alone has 450+ channels, and a lower
+    // cap used to hide every provider listed after it.
+    let limit = p.limit.unwrap_or(MAX_LIVE).clamp(1, MAX_LIVE);
+    let items = store.live_guide(&f, limit).await;
     Json(json!({ "items": items, "now": now_secs() })).into_response()
 }
 

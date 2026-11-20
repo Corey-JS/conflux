@@ -107,12 +107,46 @@ impl Provider for Broken {
     }
 }
 
+/// A provider with `n` live channels, numbered from 1.
+struct ManyLive(&'static str, &'static str, usize);
+#[async_trait]
+impl Provider for ManyLive {
+    fn id(&self) -> &'static str {
+        self.0
+    }
+    fn name(&self) -> &'static str {
+        self.1
+    }
+    fn has_catalog(&self) -> bool {
+        true
+    }
+    async fn catalog(&self, _: &Client) -> Result<Vec<Item>> {
+        Ok((0..self.2)
+            .map(|n| {
+                let mut it = Item::new(
+                    self.0,
+                    &n.to_string(),
+                    Kind::Live,
+                    &format!("{} {n}", self.1),
+                    format!("https://example.com/{n}"),
+                );
+                it.channel_number = Some(n as u32 + 1);
+                it
+            })
+            .collect())
+    }
+}
+
 async fn start() -> String {
-    let providers: Vec<Arc<dyn Provider>> = vec![
+    start_with(vec![
         Arc::new(CatalogFake),
         Arc::new(SearchFake),
         Arc::new(Broken),
-    ];
+    ])
+    .await
+}
+
+async fn start_with(providers: Vec<Arc<dyn Provider>>) -> String {
     let store = Store::new(providers, Client::new());
     store.refresh_all().await;
     let web = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/web"));
@@ -183,6 +217,27 @@ async fn live_lists_channels_in_number_order() {
     let base = start().await;
     let (_, v) = get(&base, "/api/live").await;
     assert_eq!(titles(&v), vec!["News Now", "Star Trek Channel"]);
+}
+
+#[tokio::test]
+async fn live_guide_includes_every_provider() {
+    // Pluto has 450+ channels and is listed first; Plex must still show up.
+    let base = start_with(vec![
+        Arc::new(ManyLive("pluto", "Pluto TV", 450)),
+        Arc::new(ManyLive("plex", "Plex", 3)),
+    ])
+    .await;
+    let (_, v) = get(&base, "/api/live").await;
+    assert_eq!(v["items"].as_array().unwrap().len(), 453, "whole lineups by default");
+
+    let (_, v) = get(&base, "/api/live?limit=400").await;
+    let items = v["items"].as_array().unwrap();
+    assert_eq!(items.len(), 400);
+    assert_eq!(
+        items.iter().filter(|i| i["provider"] == "plex").count(),
+        3,
+        "a cap still leaves room for providers listed later"
+    );
 }
 
 #[tokio::test]

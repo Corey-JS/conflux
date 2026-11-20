@@ -76,18 +76,27 @@ function row(item) {
 
 // ---- TV guide (live channels with what's on now and next) ----
 const fmtTime = new Intl.DateTimeFormat([], { hour: "numeric", minute: "2-digit" });
-const live = { items: [], skew: 0 }; // skew: server clock minus ours, in ms
+const live = { items: [], skew: 0, fetchedAt: 0 }; // skew: server clock minus ours, in ms
 const expanded = new Set();
+let guideRows = []; // what renderGuide drew: [{ item, key, li, bar, start, stop }]
+let view = null; // "guide" or "results" once drawn, so refreshes can skip the skeleton
 const serverNow = () => Date.now() + live.skew;
 const clock = (sec) => fmtTime.format(new Date(sec * 1000));
+const progress = (start, stop, t) => Math.min(100, Math.max(0, ((t - start) / (stop - start)) * 100));
 
-function guideRow(item) {
-  const t = serverNow() / 1000;
+// Which program a row shows and whether it has started. A row only needs
+// rebuilding when this changes; otherwise just its progress bar moves.
+function guideKey(item, t) {
+  const p = (item.programs || []).find((x) => x.stop > t);
+  return p ? `${p.start}${p.start <= t ? "+" : "-"}` : "";
+}
+
+function guideRow(item, t) {
   const progs = (item.programs || []).filter((p) => p.stop > t);
-  if (!progs.length) return row(item);
+  if (!progs.length) return { li: row(item) };
   const [now, ...later] = progs;
   const airing = now.start <= t;
-  const pct = airing ? Math.min(100, Math.max(0, ((t - now.start) / (now.stop - now.start)) * 100)) : 0;
+  const pct = airing ? progress(now.start, now.stop, t) : 0;
 
   // Art for the show that's on, like album art; the channel logo is the fallback.
   const art = now.image || item.image;
@@ -111,7 +120,8 @@ function guideRow(item) {
   const info = el("div", { class: "info" }, chan,
     el("div", { class: "title" }, now.title),
     el("div", { class: "g-sub" }, sub));
-  if (airing) info.append(el("div", { class: "bar", "aria-hidden": "true" }, el("i", { style: `width:${pct.toFixed(1)}%` })));
+  const bar = airing ? el("i", { style: `width:${pct.toFixed(1)}%` }) : null;
+  if (bar) info.append(el("div", { class: "bar", "aria-hidden": "true" }, bar));
   if (later[0]) info.append(el("div", { class: "g-next" }, el("b", {}, "Next "), `${clock(later[0].start)}  ${later[0].title}`));
 
   const watch = el("a", { class: "watch", href: item.watch_url, target: "_blank", rel: "noopener noreferrer", "aria-label": `Watch ${item.title}` },
@@ -135,12 +145,36 @@ function guideRow(item) {
   main.addEventListener("keydown", (e) => {
     if ((e.key === "Enter" || e.key === " ") && e.target === main) { e.preventDefault(); toggle(); }
   });
-  return el("li", { class: "guide" }, main, sched);
+  return { li: el("li", { class: "guide" }, main, sched), bar, start: now.start, stop: now.stop };
 }
 
 function renderGuide() {
-  els.results.replaceChildren(...live.items.map(guideRow).filter(Boolean));
+  const t = serverNow() / 1000;
+  guideRows = [];
+  for (const item of live.items) {
+    const r = guideRow(item, t);
+    if (r.li) guideRows.push({ item, key: guideKey(item, t), ...r });
+  }
+  els.results.replaceChildren(...guideRows.map((r) => r.li));
+  view = "guide";
   if (!live.items.length) note("No live channels loaded yet. Try again in a minute.");
+}
+
+// Move progress bars, and rebuild only the rows whose show has changed.
+// Rebuilding all 1,000+ rows every 30s would drop focus and redo every image.
+function tickGuide() {
+  const t = serverNow() / 1000;
+  for (const r of guideRows) {
+    const key = guideKey(r.item, t);
+    if (key !== r.key) {
+      const fresh = guideRow(r.item, t);
+      if (!fresh.li) continue;
+      r.li.replaceWith(fresh.li);
+      Object.assign(r, { bar: null }, fresh, { key });
+    } else if (r.bar) {
+      r.bar.style.width = `${progress(r.start, r.stop, t).toFixed(1)}%`;
+    }
+  }
 }
 
 function initial(title) {
@@ -148,6 +182,7 @@ function initial(title) {
 }
 
 function skeleton(n = 6) {
+  view = null;
   els.results.replaceChildren(...Array.from({ length: n }, () =>
     el("li", { class: "skeleton" }, el("a", {},
       el("div", { class: "thumb" }), el("div", { class: "info" },
@@ -161,6 +196,7 @@ function note(text) {
 
 function render(items, emptyText) {
   els.results.replaceChildren(...items.map(row).filter(Boolean));
+  view = "results";
   if (!items.length) note(emptyText);
 }
 
@@ -192,17 +228,20 @@ async function update() {
     if (!q) {
       if (state.kind === "movie" || state.kind === "series") {
         els.heading.textContent = state.kind === "movie" ? "Movies" : "Shows";
+        view = null;
         els.results.replaceChildren();
         note("Type a title to search free movies and shows.");
         return;
       }
       els.heading.textContent = "Live channels";
-      skeleton();
-      const p = params({ limit: "400" });
+      // A background refresh redraws in place instead of flashing the skeleton.
+      if (view !== "guide") skeleton();
+      const p = params({}); // no limit: the server sends whole lineups
       p.delete("kind");
       const data = await getJSON("/api/live?" + p, signal);
       live.items = data.items;
       live.skew = data.now ? data.now * 1000 - Date.now() : 0;
+      live.fetchedAt = Date.now();
       renderGuide();
       return;
     }
@@ -216,6 +255,7 @@ async function update() {
     }
   } catch (e) {
     if (e.name === "AbortError") return;
+    view = null;
     els.results.replaceChildren();
     note(navigator.onLine === false || e.message === "offline"
       ? "You're offline. Search needs a connection."
@@ -286,11 +326,10 @@ function init() {
 
   loadProviders().then(() => update());
 
-  // Keep "now" honest: redraw progress every 30s, refetch schedules every 5 min.
-  let lastFetch = Date.now();
+  // Keep "now" honest: move progress every 30s, refetch schedules every 5 min.
   setInterval(() => {
-    if (document.hidden || state.q.trim() || state.kind === "movie" || state.kind === "series") return;
-    if (Date.now() - lastFetch > 5 * 60 * 1000) { lastFetch = Date.now(); update(); } else if (live.items.length) renderGuide();
+    if (document.hidden || view !== "guide") return;
+    if (Date.now() - live.fetchedAt > 5 * 60 * 1000) update(); else tickGuide();
   }, 30 * 1000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) schedule(0); });
 

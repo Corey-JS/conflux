@@ -95,6 +95,37 @@ fn now() -> u64 {
         .unwrap_or(0)
 }
 
+/// Keep at most `limit` items across groups without letting the first group
+/// crowd out the rest: each group gets an equal share, and any share a group
+/// can't fill goes to the others. Group order and order within each group
+/// are kept.
+fn fair_truncate<T>(groups: Vec<Vec<T>>, limit: usize) -> Vec<T> {
+    let mut take = vec![0; groups.len()];
+    let mut left = limit;
+    loop {
+        let open: Vec<usize> = (0..groups.len())
+            .filter(|&i| take[i] < groups[i].len())
+            .collect();
+        if open.is_empty() || left == 0 {
+            break;
+        }
+        let share = (left / open.len()).max(1);
+        for i in open {
+            let n = share.min(groups[i].len() - take[i]).min(left);
+            take[i] += n;
+            left -= n;
+            if left == 0 {
+                break;
+            }
+        }
+    }
+    groups
+        .into_iter()
+        .zip(take)
+        .flat_map(|(g, n)| g.into_iter().take(n))
+        .collect()
+}
+
 fn short(e: &anyhow::Error) -> String {
     let s = format!("{e:#}");
     if s.len() > 300 {
@@ -255,9 +286,11 @@ impl Store {
     }
 
     /// Live channels from the downloaded catalogs, for browsing with no query.
-    pub async fn live(&self, filter: &Filter) -> Vec<Item> {
+    /// Grouped by provider, each in channel order. If there are more than
+    /// `limit`, every provider still gets a fair share (see `fair_truncate`).
+    pub async fn live(&self, filter: &Filter, limit: usize) -> Vec<Item> {
         let st = self.state.read().await;
-        let mut out = Vec::new();
+        let mut groups = Vec::new();
         for p in &self.providers {
             if !filter.allows_provider(p.id()) {
                 continue;
@@ -271,15 +304,15 @@ impl Store {
                 live.sort_by_key(|i| {
                     (i.channel_number.unwrap_or(u32::MAX), i.title.to_lowercase())
                 });
-                out.extend(live);
+                groups.push(live);
             }
         }
-        out
+        fair_truncate(groups, limit)
     }
 
     /// Live channels with what's on now and next, for the TV-guide view.
-    pub async fn live_guide(&self, filter: &Filter) -> Vec<LiveEntry> {
-        let items = self.live(filter).await;
+    pub async fn live_guide(&self, filter: &Filter, limit: usize) -> Vec<LiveEntry> {
+        let items = self.live(filter, limit).await;
         let st = self.state.read().await;
         let t = now();
         items
@@ -404,5 +437,28 @@ impl Store {
             .take(limit)
             .collect();
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fair_truncate;
+
+    #[test]
+    fn fair_truncate_shares_the_limit() {
+        // Under the limit: everything, in order.
+        assert_eq!(fair_truncate(vec![vec![1, 2], vec![3]], 10), vec![1, 2, 3]);
+        // A big first group can't crowd out the second.
+        let big: Vec<u32> = (0..450).collect();
+        let out = fair_truncate(vec![big, vec![1000, 1001, 1002]], 400);
+        assert_eq!(out.len(), 400);
+        assert_eq!(&out[397..], &[1000, 1001, 1002], "small group kept whole");
+        assert_eq!(out[396], 396, "big group gets the rest, in order");
+        // Even split when both are big.
+        let out = fair_truncate(vec![vec![0; 10], vec![1; 10]], 7);
+        assert_eq!(out.iter().filter(|&&x| x == 0).count(), 4);
+        assert_eq!(out.iter().filter(|&&x| x == 1).count(), 3);
+        assert!(fair_truncate(vec![vec![1, 2]], 0).is_empty());
+        assert!(fair_truncate::<u8>(vec![], 5).is_empty());
     }
 }
